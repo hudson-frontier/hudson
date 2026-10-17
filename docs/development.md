@@ -415,3 +415,7 @@ Temporal tests and all smoke scripts. Provider calls use local fixtures; provide
 credentials are not needed. Check and database logs are retained for seven days.
 The separate Harbor Docker benchmark plumbing remains an explicit check described
 in its integration README.
+
+The Harbor worker build uses a fresh Rustup directory under the job's temporary
+directory. It still selects `rust-toolchain.toml`, while avoiding incomplete
+toolchain components preinstalled in the hosted runner image.

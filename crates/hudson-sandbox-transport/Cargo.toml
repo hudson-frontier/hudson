@@ -1,0 +1,25 @@
+[package]
+name = "hudson-sandbox-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hudson-core.workspace = true
+sandbox-client = { git = "https://github.com/hudson-infinity/hudson-sandbox.git", rev = "aac70c726e542ad4701dda64931d62135beb7da0" }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+hudson-core = { workspace = true, features = ["fixtures"] }
+tokio = { workspace = true, features = ["io-util"] }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
+rcgen = "=0.14.10"
+tempfile = "3"
+
+[lints]
+workspace = true

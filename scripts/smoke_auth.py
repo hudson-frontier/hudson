@@ -6,11 +6,15 @@ import re
 import select
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
 import uuid
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'integrations/python'))
+from hudson_client import HudsonClient, HttpError
 
 binary = pathlib.Path(os.environ.get('HUDSON_TEST_BIN_DIR', 'target/debug'))
 database = os.environ.get('HUDSON_TEST_DATABASE', 'hudson_harness_test_20260921')
@@ -47,6 +51,17 @@ try:
         assert match, line
         api = match.group()
 
+        def client_denied(token=None, status=401):
+            try:
+                HudsonClient(api, token=token).health()
+            except HttpError as error:
+                assert error.status == status
+                assert token is None or token not in str(error)
+            else:
+                raise AssertionError('client accepted a denied credential')
+
+        client_denied()
+
         def request(method, path, token=None, body=None):
             headers = {'Content-Type': 'application/json'}
             if token is not None:
@@ -72,6 +87,7 @@ try:
         assert request('POST', '/runs', body=task)[0] == 401
         assert request('POST', '/runs', 'forged', task)[0] == 401
         assert request('POST', '/runs', wrong['token'], task)[0] == 403
+        client_denied(wrong['token'], 403)
         code, receipt = request('POST', '/runs', first['token'], task)
         assert code == 202
         assert request('POST', '/runs', rotated['token'], task) == (202, receipt)
@@ -85,6 +101,7 @@ try:
         assert first['token'] not in result.stdout + result.stderr
         operator('revoke', first['metadata']['id'])
         assert request('GET', '/runs/' + run, first['token'])[0] == 401
+        client_denied(first['token'])
         result = subprocess.run([*cli, 'get', run], env=cli_env, capture_output=True, text=True, timeout=10)
         assert result.returncode != 0
         assert first['token'] not in result.stdout + result.stderr
@@ -92,6 +109,7 @@ try:
         expired = operator('issue', '--label', 'short-lived', '--ttl-seconds', '1')
         time.sleep(1.1)
         assert request('GET', '/health', expired['token'])[0] == 401
+        client_denied(expired['token'])
         result = subprocess.run([str(binary / 'hudson-cli'), '--url', 'http://example.invalid',
             '--api-token-env', 'HUDSON_TEST_API_TOKEN', 'health'], env=cli_env,
             capture_output=True, text=True, timeout=5)

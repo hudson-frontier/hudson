@@ -5,12 +5,15 @@ import os
 import pathlib
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import urllib.request
 import urllib.error
 import uuid
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'integrations/python'))
+from hudson_client import HudsonClient, HttpError
 calls = []
 failures = []
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -81,10 +84,19 @@ try:
         assert waiting['wait']['type'] == 'user_input' and waiting['wait']['prompt'] == 'Which city?'
         question_id = waiting['wait']['question_id']
         assert question_id > 0
+        observed_wait = list(HudsonClient(api).follow(run))[-1]['run']['wait']
+        assert observed_wait == waiting['wait']
         assert len(calls) == 1
         process.terminate(); process.wait(timeout=5)
         api = start()
         assert request('GET', '/runs/' + run)['wait'] == waiting['wait']
+        # Zero is a valid wire identity; the server decides whether it matches
+        # this pending question, rather than the client rejecting it locally.
+        try:
+            HudsonClient(api).reply(run, 'stale answer', request_key='zero-question', question_id=0)
+            raise AssertionError('stale zero question accepted')
+        except HttpError as error:
+            assert error.status == 409
         try:
             request('POST', '/runs/' + run + '/input', {'input':'stale answer','request_key':'stale','question_id':question_id + 1})
             raise AssertionError('wrong question accepted')
@@ -97,6 +109,7 @@ try:
         complete = until(run, 'completed')
         assert complete['result'] == {'city':'Boston'}
         subprocess.run(reply, check=True, capture_output=True, text=True)
+        HudsonClient(api).reply(run, 'Boston', request_key='answer-1', question_id=question_id)
         try:
             request('POST', '/runs/' + run + '/input', {'input':'Paris','request_key':'answer-1','question_id':question_id})
             raise AssertionError('changed reply accepted')

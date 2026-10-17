@@ -1,5 +1,13 @@
 # Hudson
 
+[![CI](https://github.com/hudson-infinity/hudson/actions/workflows/ci.yml/badge.svg)](https://github.com/hudson-infinity/hudson/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+Hudson is open source under the [Apache License 2.0](LICENSE).
+Read [Contributing](CONTRIBUTING.md) before opening an issue or pull request,
+the [Code of Conduct](CODE_OF_CONDUCT.md) for community expectations, and
+[Security](SECURITY.md) to report vulnerabilities privately.
+
 A generic Rust agent harness. Define instructions, connect tools, and let Hudson
 run the model → tools → results → verification loop.
 
@@ -138,6 +146,9 @@ Event reads return at most 100 entries by default. HTTP clients must advance
 `after` to the final sequence and drain pages until empty. `hudson-cli events
 RUN_UUID --after N` reads one page; repeat with the final sequence. See the
 [API migration guidance](docs/api.md) for limits and reconnect behavior.
+`hudson-cli follow RUN_UUID --after N` automatically drains pages and observes
+waits and terminal outcomes. Ctrl-C stops observation; retain the last processed
+sequence to reconnect.
 Child runs expose their pinned agent reference and can be resumed with the same
 tree configuration through either the API or worker. POST `/runs/{id}/resume` after a server
 restart. An approval wait includes an operation ID: inspect `/operations/{id}`,
@@ -239,3 +250,40 @@ For interactive clarification, enable `"allow_user_input": true` in the agent
 configuration. A waiting agent’s question appears in its run status. Answer with
 `hudson-cli reply RUN_UUID --text "Your answer" --request-key answer-1 --question-id QUESTION_ID`; Hudson
 continues the saved run. See the [development guide](docs/development.md).
+
+## Interactive terminal sessions
+
+Install the local client with `cargo install --locked --path crates/hudson-cli`.
+From a terminal in your project, run `hudson` to open a line-oriented interactive
+session. It connects to an **already running** `hudson-server` at
+`http://127.0.0.1:4318`; it does not start a host or choose a model for you.
+Start the server with your configured agent as described above, then:
+
+```sh
+hudson
+# For a token-protected server, keep the bearer token in the named environment variable:
+hudson --api-token-env HUDSON_API_TOKEN
+# Or select an immutable published agent:
+hudson session --agent analyst --agent-version 1
+```
+
+Type a plain-text task to create an independent run. The session prints the run
+ID and request key, follows bounded real event pages, and returns to the prompt
+when the run completes, fails, or waits. `/reply QUESTION_ID answer` responds to a
+user-input wait; `/approve OPERATION_UUID` and `/deny OPERATION_UUID` explicitly
+decide approvals. `/status`, `/resume`, `/cancel`, `/open RUN_UUID`, and `/follow`
+inspect/control or reconnect to the current run. `/help` lists the controls.
+Reconciliation waits still require the existing evidence-based operator recovery
+workflow. Mutation failures are never automatically replayed; retain the printed
+request key and use the existing `start` or `reply` command with the same input/key
+to reconcile an ambiguous submission. Ctrl-C exits the client without cancelling
+the run; reopen its ID with `/open` in another session.
+
+The displayed project directory is local context only. This first terminal slice
+does not upload files, grant filesystem tools, create a sandbox, or provide a
+continuous coding conversation. Each task remains a separate run governed by the
+host's configured tools, policies, agent input schema, and bearer-token scope.
+The configured agent must accept text inputs. Full-screen rendering, local host
+bootstrap, and explicitly scoped project tools are subsequent work. Existing
+`hudson-cli` subcommands remain available; scripts should use `start`/`follow`
+because the interactive entrypoint requires a real terminal.

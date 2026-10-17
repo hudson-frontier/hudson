@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible problem in Hudson.
+title: "fix: "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: Report vulnerabilities privately using the Security tab. Remove credentials and customer data.
+  - type: input
+    id: version
+    attributes:
+      label: Revision and environment
+      description: Commit or version, operating system, and Rust version.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal configuration or example.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: text

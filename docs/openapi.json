@@ -758,6 +758,50 @@
           }
         ]
       }
+    },
+    "/runs/{id}/schedule": {
+      "get": {
+        "operationId": "inspectSchedule",
+        "summary": "Inspect saved scheduling publication evidence, not execution status",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1873,6 +1917,45 @@
           "input"
         ],
         "additionalProperties": false
+      },
+      "ScheduleView": {
+        "type": "object",
+        "required": [
+          "root_run_id",
+          "status",
+          "last_attempt_at",
+          "published_at"
+        ],
+        "properties": {
+          "root_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unscheduled",
+              "pending",
+              "published"
+            ],
+            "description": "Publication evidence only; published means scheduler acceptance, not task start or completion."
+          },
+          "last_attempt_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "published_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Original acknowledgment timestamp; absent in legacy snapshots."
+          }
+        }
       }
     },
     "securitySchemes": {

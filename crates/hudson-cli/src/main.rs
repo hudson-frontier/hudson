@@ -1,5 +1,7 @@
 mod client;
 mod commands;
+mod follow;
+mod session;
 
 use clap::Parser;
 

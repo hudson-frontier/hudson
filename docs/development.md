@@ -120,6 +120,8 @@ assistant text alongside tool calls through checkpoints and restore that text
 exactly once in the next provider request. Refusal-bearing or unsupported content
 cannot dispatch tools. The continuation follows the documented
 [Chat Completions tool cycle](https://developers.openai.com/api/docs/guides/function-calling).
+Older checkpoints remain readable; assistant text discarded by older adapters
+cannot be reconstructed.
 Chat tool calls retain
 `extra_content` and `thought_signature`. Anthropic tool cycles retain signed
 thinking, redacted thinking, and interleaved text in checkpoint metadata. Tool

@@ -450,6 +450,113 @@ fn a_follow_up_enqueued_during_finalization_is_neither_lost_nor_duplicated() {
 }
 
 #[test]
+fn withdrawal_fences_a_preparation_failure_without_suppressing_current_failures() {
+    use hudson_harness::{Backend, Checkpoint, Config, HarnessError, Input, Transition};
+    use std::sync::mpsc;
+
+    struct PausedQueuedInput {
+        entered: mpsc::SyncSender<()>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Backend for PausedQueuedInput {
+        fn name(&self) -> &str {
+            "hudson"
+        }
+        fn version(&self) -> u32 {
+            1
+        }
+        fn advance(
+            &self,
+            config: &Config,
+            checkpoint: &Checkpoint,
+            input: Input,
+        ) -> Result<Transition, HarnessError> {
+            if matches!(input, Input::Queued { .. }) {
+                self.entered.send(()).unwrap();
+                self.release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+            }
+            AgentLoop.advance(config, checkpoint, input)
+        }
+    }
+
+    for withdraw in [false, true] {
+        let store = Store::default();
+        let (mut agent, _) = fixtures::definitions();
+        agent.tools.clear();
+        agent.input_schema = None;
+        agent.output_schema = None;
+        agent.limits.max_context_bytes = 4096;
+        store.publish_agent(agent).unwrap();
+        let actor = fixtures::actor();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let (entered, entered_rx) = mpsc::sync_channel(1);
+        let (release, release_rx) = mpsc::sync_channel(1);
+        let mut host = Runtime::new(
+            store.clone(),
+            PausedQueuedInput {
+                entered,
+                release: Mutex::new(release_rx),
+            },
+            Recorder(requests.clone()),
+            ToolRegistry::new(),
+        );
+        let id = host
+            .submit(&actor, fixtures::agent_ref(), json!("original"), None)
+            .unwrap();
+        store
+            .enqueue_message(
+                &actor,
+                id,
+                MessageKind::Steer,
+                json!("x".repeat(8192)),
+                "oversized-context",
+            )
+            .unwrap();
+        let worker_actor = actor.clone();
+        let worker = std::thread::spawn(move || host.tick(&worker_actor, id));
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        if withdraw {
+            assert_eq!(store.clear_queued_messages(&actor, id).unwrap(), 1);
+        }
+        release.send(()).unwrap();
+        let view = worker.join().unwrap().unwrap();
+        assert!(requests.lock().unwrap().is_empty());
+        if !withdraw {
+            assert_eq!(view.status, RunStatus::Failed);
+            continue;
+        }
+        assert!(!view.status.terminal());
+        let mut host = runtime(store.clone(), requests.clone());
+        for _ in 0..12 {
+            if host.tick(&actor, id).unwrap().status.terminal() {
+                break;
+            }
+        }
+        assert_eq!(
+            store.inspect(&actor, id).unwrap().status,
+            RunStatus::Completed
+        );
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(matches!(requests[0].messages[0].content.as_slice(),
+            [Content::Json { value }] if value == &json!("original")));
+        assert!(!store
+            .events(&actor, id, 0)
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event.event_type, EventType::InputConsumed)
+                || event.event_type == EventType::RunFinished
+                    && event.payload["status"] == "failed"));
+    }
+}
+
+#[test]
 fn consumed_keys_remain_bounded_and_aggregate_payload_overflow_rolls_back() {
     let store = Store::default();
     install(&store);

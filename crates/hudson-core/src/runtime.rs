@@ -211,7 +211,13 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             return self.store.inspect(actor, id);
         };
         if run.state.step >= run.limits.max_harness_steps {
-            self.fail(actor, id, run.revision, "harness step budget exhausted")?;
+            self.fail(
+                actor,
+                id,
+                run.revision,
+                "harness step budget exhausted",
+                None,
+            )?;
             return self.store.inspect(actor, id);
         }
         let (config, dependency_artifacts) = self.store.read(|d| {
@@ -254,7 +260,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         ) {
             Ok(t) => t,
             Err(e) => {
-                self.fail(actor, id, run.revision, &e.to_string())?;
+                self.fail(actor, id, run.revision, &e.to_string(), Some(&queued))?;
                 return self.store.inspect(actor, id);
             }
         };
@@ -364,7 +370,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             if matches!(error, Error::Conflict(_)) {
                 return Err(error);
             }
-            self.fail(actor, id, run.revision, &error.to_string())?;
+            self.fail(actor, id, run.revision, &error.to_string(), Some(&queued))?;
         }
         self.store.inspect(actor, id)
     }
@@ -484,11 +490,23 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         })
     }
 
-    fn fail(&self, actor: &Actor, id: Uuid, revision: u64, reason: &str) -> Result<()> {
+    fn fail(
+        &self,
+        actor: &Actor,
+        id: Uuid,
+        revision: u64,
+        reason: &str,
+        queue: Option<&crate::inbox::Prepared>,
+    ) -> Result<()> {
         self.store.transact(|d| {
             let run = d.run(actor, id)?;
             if run.revision != revision {
                 return Err(Error::Conflict("stale run revision".into()));
+            }
+            // A withdrawal can make a failed preparation valid again. Fence
+            // failure with the same queue snapshot as a successful transition.
+            if queue.is_some_and(|expected| !crate::inbox::unchanged(d, id, expected)) {
+                return Ok(());
             }
             let run = d.runs.get_mut(&id).expect("checked");
             run.status = RunStatus::Failed;

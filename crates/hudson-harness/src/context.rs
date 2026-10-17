@@ -46,19 +46,13 @@ impl History {
     /// Find an oldest complete exchange after the original task. Pending tool
     /// calls are never split from results, including parallel call batches.
     pub fn oldest_complete_exchange(&self) -> Option<std::ops::Range<usize>> {
-        let protected = self
-            .messages
-            .iter()
-            .rposition(|message| message.role == crate::Role::User);
+        let protected = self.latest_direction_index();
         self.exchange_at(if protected == Some(1) { 2 } else { 1 })
     }
 
     /// Scan each message once, retaining the original task and newest user direction.
     pub fn complete_exchanges(&self) -> Vec<std::ops::Range<usize>> {
-        let protected = self
-            .messages
-            .iter()
-            .rposition(|message| message.role == crate::Role::User);
+        let protected = self.latest_direction_index();
         let mut ranges = Vec::new();
         let mut start = 1;
         while start < self.messages.len() {
@@ -73,6 +67,15 @@ impl History {
             ranges.push(range);
         }
         ranges
+    }
+
+    fn latest_direction_index(&self) -> Option<usize> {
+        self.messages.iter().rposition(|message| {
+            // Default-loop user inputs are JSON. Its generated repair text uses
+            // this reserved prefix, including in checkpoints from older builds.
+            message.role == crate::Role::User && !matches!(message.content.as_slice(),
+                [crate::Content::Text { text }] if text.starts_with(crate::agent_loop::VERIFICATION_FEEDBACK_PREFIX))
+        })
     }
 
     fn exchange_at(&self, start: usize) -> Option<std::ops::Range<usize>> {

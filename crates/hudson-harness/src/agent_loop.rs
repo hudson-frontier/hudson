@@ -7,6 +7,9 @@ use std::collections::BTreeSet;
 #[derive(Default)]
 pub struct AgentLoop;
 
+pub(crate) const VERIFICATION_FEEDBACK_PREFIX: &str =
+    "The output did not pass verification. Correct it using this feedback: ";
+
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     #[serde(flatten)]
@@ -190,7 +193,12 @@ impl Backend for AgentLoop {
                     feedback,
                 },
             ) => {
-                state.history.messages.push(Message { role: Role::User, content: vec![Content::Text { text: format!("The output did not pass verification. Correct it using this feedback: {feedback}") }] });
+                state.history.messages.push(Message {
+                    role: Role::User,
+                    content: vec![Content::Text {
+                        text: format!("{VERIFICATION_FEEDBACK_PREFIX}{feedback}"),
+                    }],
+                });
                 request(config, &mut state, &mut queued)?
             }
             _ => return Err(invalid("input does not match the pending loop action")),

@@ -116,7 +116,10 @@ impl QualificationObserver {
         let identity = self.client.identity();
         let bytes = serde_json::to_vec(&[identity.origin, identity.project_id])
             .map_err(|_| Error::Request)?;
-        Ok(format!("{:x}", Sha256::digest(bytes)))
+        Ok(Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect())
     }
     /// Persist SDK-canonical bytes with the actual constructed client's declaration.
     /// No external request is sent and no admission intent is consumed.

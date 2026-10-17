@@ -115,7 +115,12 @@ redirects are disabled, requests time out, responses are capped at 2 MiB, and
 ambiguous transport failures are not retried automatically. Gemini/Ollama presets
 use `max_tokens`; default OpenAI uses `max_completion_tokens`.
 
-Adapters support text/JSON and client function tools. Chat tool calls retain
+Adapters support text/JSON and client function tools. Chat responses retain
+assistant text alongside tool calls through checkpoints and restore that text
+exactly once in the next provider request. Refusal-bearing or unsupported content
+cannot dispatch tools. The continuation follows the documented
+[Chat Completions tool cycle](https://developers.openai.com/api/docs/guides/function-calling).
+Chat tool calls retain
 `extra_content` and `thought_signature`. Anthropic tool cycles retain signed
 thinking, redacted thinking, and interleaved text in checkpoint metadata. Tool
 executors receive arguments, not that metadata. Tests cover checkpoint roundtrips.

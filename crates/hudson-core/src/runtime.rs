@@ -234,15 +234,15 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 crate::coordination::append_dependency_context(d, id, &mut config.instructions)?;
             Ok((config, artifacts))
         })?;
-        let context_policy = self.store.read(|d| {
-            Ok(d.context_policies
+        let (context_policy, queued, queued_input) = self.store.read(|d| {
+            let policy = d
+                .context_policies
                 .get(&(actor.workspace_id.clone(), run.agent_ref.clone()))
                 .cloned()
-                .flatten())
+                .flatten();
+            let (queued, input) = crate::inbox::prepare(d, id, input.clone());
+            Ok((policy, queued, input))
         })?;
-        let (queued, queued_input) = self
-            .store
-            .read(|data| Ok(crate::inbox::prepare(data, id, input.clone())))?;
         let prepared = match crate::context::advance(
             &self.engine,
             &config,

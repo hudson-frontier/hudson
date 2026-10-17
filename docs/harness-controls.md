@@ -149,6 +149,13 @@ Custom backends may reject queued input; the store exposes this control only to
 the default loop's checkpoint contract. HTTP callers with exhaustive event enums
 must add the three queue event types from the reviewed preview revision.
 
+The first accepted queued message promotes its PostgreSQL namespace row to
+storage format 2, atomically with the message and receipt. Current binaries read
+formats 1 and 2; older binaries reject format 2 instead of silently dropping the
+inbox. The format does not downgrade after messages are consumed or withdrawn.
+Upgrade all database writers before using queue controls. Namespaces that never
+use queues retain format 1; no automatic downgrade migration is provided.
+
 Reserved headroom can archive evidence earlier and increase explicit retrieval
 tool calls. It introduces no hidden summaries, and those calls still consume the
 ordinary run/tool budgets. Zero reserve retains the previous hard-limit trigger.

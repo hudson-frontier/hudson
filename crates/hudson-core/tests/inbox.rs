@@ -174,6 +174,75 @@ fn postgres_queue_consumption_and_receipts_survive_reconnect() {
 }
 
 #[test]
+#[ignore = "requires HUDSON_TEST_DATABASE in local PostgreSQL"]
+fn postgres_queue_state_promotes_its_format_and_rejects_unknown_versions() {
+    let database = std::env::var("HUDSON_TEST_DATABASE").unwrap();
+    let namespace = format!("inbox-format-{}", uuid::Uuid::new_v4());
+    let mut client = postgres::Config::new()
+        .host("/tmp")
+        .dbname(&database)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .connect(postgres::NoTls)
+        .unwrap();
+    let store = Store::postgres_local("/tmp", &database, &namespace).unwrap();
+    install(&store);
+    let actor = fixtures::actor();
+    let host = runtime(store.clone(), Default::default());
+    let id = host
+        .submit(&actor, fixtures::agent_ref(), json!("task"), None)
+        .unwrap();
+    let version = |client: &mut postgres::Client| -> i32 {
+        client
+            .query_one(
+                "SELECT schema_version FROM hudson_state WHERE namespace=$1",
+                &[&namespace],
+            )
+            .unwrap()
+            .get(0)
+    };
+    assert_eq!(version(&mut client), 1);
+    let receipt = store
+        .enqueue_message(
+            &actor,
+            id,
+            MessageKind::Steer,
+            json!("direction"),
+            "message",
+        )
+        .unwrap();
+    assert_eq!(version(&mut client), 2);
+    store.clear_queued_messages(&actor, id).unwrap();
+    let reopened = Store::postgres_local("/tmp", &database, &namespace).unwrap();
+    assert_eq!(
+        reopened
+            .enqueue_message(
+                &actor,
+                id,
+                MessageKind::Steer,
+                json!("direction"),
+                "message"
+            )
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(version(&mut client), 2);
+    client
+        .execute(
+            "UPDATE hudson_state SET schema_version=3 WHERE namespace=$1",
+            &[&namespace],
+        )
+        .unwrap();
+    assert!(matches!(
+        store.inspect(&actor, id),
+        Err(hudson_core::Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        Store::postgres_local("/tmp", &database, &namespace),
+        Err(hudson_core::Error::Unsupported(_))
+    ));
+}
+
+#[test]
 fn queue_bounds_withdrawal_and_cancellation_do_not_forget_receipts() {
     let store = Store::default();
     install(&store);

@@ -1,6 +1,6 @@
 # Developing Hudson
 
-Hudson uses Rust 1.92.0, a committed Cargo.lock, and six Cargo crates. The default
+Hudson uses Rust 1.92.0, a committed Cargo.lock, and seven Cargo crates. The default
 `AgentLoop` supports real model/tool execution, skills, goals, subagents, and
 PostgreSQL persistence. The [code structure](code-structure.md) describes ownership;
 the [implementation audit](implementation-status.md) distinguishes evidence from

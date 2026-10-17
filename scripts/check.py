@@ -33,6 +33,7 @@ def main():
         subprocess.run(command, cwd=ROOT, env=env, check=True)
 
     run('cargo', 'fmt', '--all', '--', '--check')
+    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_repository.py', '-v')
     run(sys.executable, 'scripts/check_api_compatibility.py')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'integrations/python', '-v')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'examples/project-files', '-v')

@@ -64,9 +64,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             'function': {'name': 'sum', 'arguments': '{"left":17,"right":25}'},
                             'extra_content': {'google': {'thought_signature': 'signed-test'}}}
                     if len(calls) == 1:
-                        response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'tool_calls': [call]}}]}
+                        response = {'choices': [{'finish_reason': 'tool_calls', 'message': {
+                            'content': 'I will add the numbers.', 'tool_calls': [call]}}]}
                     else:
+                        assert body['messages'][-2]['content'] == 'I will add the numbers.'
                         previous = body['messages'][-2]['tool_calls'][0]
+                        assert 'chat_assistant_text' not in previous
                         assert previous['extra_content'] == call['extra_content']
                         assert json.loads(previous['function']['arguments']) == {'left': 17, 'right': 25}
                         result = body['messages'][-1]

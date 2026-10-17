@@ -155,6 +155,7 @@ fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionErr
     for message in &request.messages {
         let mut text = Vec::new();
         let mut calls = Vec::new();
+        let mut assistant_text_seen = false;
         for content in &message.content {
             match content {
                 Content::Text { text: value } => text.push(value.clone()),
@@ -164,6 +165,12 @@ fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionErr
                     if !call.provider_metadata.is_null() {
                         let metadata=call.provider_metadata.as_object().ok_or_else(||failed("invalid provider metadata"))?;
                         for (key,value) in metadata {
+                            if key == "chat_assistant_text" {
+                                if assistant_text_seen { return Err(failed("duplicate assistant continuation text")); }
+                                text.push(value.as_str().ok_or_else(||failed("invalid assistant continuation text"))?.to_owned());
+                                assistant_text_seen = true;
+                                continue;
+                            }
                             if !matches!(key.as_str(),"extra_content" | "thought_signature") { return Err(failed("unsupported provider metadata field")); }
                             item[key]=value.clone();
                         }
@@ -204,8 +211,16 @@ fn decode(value: Value) -> Result<ModelResponse, ExecutionError> {
         .and_then(|c| c.first())
         .ok_or_else(|| failed("expected one model choice"))?;
     let message = &choice["message"];
+    if !message["refusal"].is_null() {
+        return Err(failed("model refused the request"));
+    }
     match choice["finish_reason"].as_str() {
         Some("tool_calls") => {
+            let assistant_text = match message.get("content") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(text)) => Some(text),
+                _ => return Err(failed("unsupported assistant continuation content")),
+            };
             let items = message["tool_calls"]
                 .as_array()
                 .filter(|v| !v.is_empty())
@@ -213,6 +228,13 @@ fn decode(value: Value) -> Result<ModelResponse, ExecutionError> {
             let mut calls = Vec::new();
             for item in items {
                 let mut metadata = serde_json::Map::new();
+                // Keep message-level context once, rather than copying it into every call.
+                // This field is restored as assistant content, never sent as a tool argument.
+                if calls.is_empty() {
+                    if let Some(text) = assistant_text.filter(|text| !text.is_empty()) {
+                        metadata.insert("chat_assistant_text".into(), json!(text));
+                    }
+                }
                 for key in ["extra_content", "thought_signature"] {
                     if let Some(value) = item.get(key) {
                         metadata.insert(key.into(), value.clone());
@@ -242,9 +264,6 @@ fn decode(value: Value) -> Result<ModelResponse, ExecutionError> {
             Ok(ModelResponse::ToolCalls { calls })
         }
         Some("stop") => {
-            if !message["refusal"].is_null() {
-                return Err(failed("model refused the request"));
-            }
             let text = message["content"]
                 .as_str()
                 .ok_or_else(|| failed("missing model output"))?;
@@ -272,6 +291,17 @@ mod tests {
         assert!(matches!(decode(json!({"choices":[{"finish_reason":"tool_calls","message":{"tool_calls":[{"id":"a","type":"function","function":{"name":"query","arguments":"{}"}}]}}]})).unwrap(), ModelResponse::ToolCalls { .. }));
         assert_eq!(decode(json!({"choices":[{"finish_reason":"stop","message":{"content":"{\"answer\":42}"}}]})).unwrap(), ModelResponse::Final { output:json!({"answer":42}) });
     }
+    #[test]
+    fn refused_or_unsupported_assistant_content_cannot_dispatch_tools() {
+        let call = json!({"id":"a","type":"function","function":{"name":"query","arguments":"{}"}});
+        for content in [
+            json!(false),
+            json!([{"type":"refusal","refusal":"declined"}]),
+        ] {
+            assert!(decode(json!({"choices":[{"finish_reason":"tool_calls","message":{"content":content,"tool_calls":[call]}}]})).is_err());
+        }
+        assert!(decode(json!({"choices":[{"finish_reason":"tool_calls","message":{"refusal":"declined","tool_calls":[call]}}]})).is_err());
+    }
 }
 
 #[cfg(test)]
@@ -281,7 +311,7 @@ mod continuation_tests {
     #[test]
     fn opaque_tool_metadata_survives_checkpoint_and_next_request() {
         let opaque = json!({"google":{"thought_signature":"opaque-signed-value"}});
-        let response=decode(json!({"choices":[{"finish_reason":"tool_calls","message":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"sum","arguments":"{\"a\":1}"},"extra_content":opaque}]}}]})).unwrap();
+        let response=decode(json!({"choices":[{"finish_reason":"tool_calls","message":{"content":"I will calculate the total.","tool_calls":[{"id":"call-1","type":"function","function":{"name":"sum","arguments":"{\"a\":1}"},"extra_content":opaque},{"id":"call-2","type":"function","function":{"name":"sum","arguments":"{\"a\":2}"}}]}}]})).unwrap();
         let config = Config {
             allow_user_input: false,
             instructions: "help".into(),
@@ -309,10 +339,16 @@ mod continuation_tests {
                 &config,
                 &checkpoint,
                 Input::Tools {
-                    results: vec![ToolResult {
-                        call_id: "call-1".into(),
-                        outcome: ToolOutcome::Success { value: json!(1) },
-                    }],
+                    results: vec![
+                        ToolResult {
+                            call_id: "call-1".into(),
+                            outcome: ToolOutcome::Success { value: json!(1) },
+                        },
+                        ToolResult {
+                            call_id: "call-2".into(),
+                            outcome: ToolOutcome::Success { value: json!(2) },
+                        },
+                    ],
                 },
             )
             .unwrap();
@@ -321,6 +357,15 @@ mod continuation_tests {
         };
         let body = encode(&request, 100).unwrap();
         let call = &body["messages"][2]["tool_calls"][0];
+        assert_eq!(
+            body["messages"][2]["content"],
+            "I will calculate the total."
+        );
+        assert!(call.get("chat_assistant_text").is_none());
+        assert_eq!(
+            body["messages"][2]["tool_calls"].as_array().unwrap().len(),
+            2
+        );
         assert_eq!(call["extra_content"], opaque);
         assert_eq!(call["function"]["arguments"], "{\"a\":1}");
     }

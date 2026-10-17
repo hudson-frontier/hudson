@@ -8,7 +8,6 @@ use hudson_core::{
 };
 pub use sandbox_client::models::{CommandInput, CreateRequest, DestroyRequest};
 use sandbox_client::{requests::GetOperation, Client};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
@@ -114,12 +113,10 @@ impl QualificationObserver {
     /// This pins a trusted local declaration, not server authorization evidence.
     pub fn profile_fingerprint(&self) -> Result<String, Error> {
         let identity = self.client.identity();
-        let bytes = serde_json::to_vec(&[identity.origin, identity.project_id])
-            .map_err(|_| Error::Request)?;
-        Ok(Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect())
+        Ok(hudson_core::definitions::digest(&[
+            identity.origin,
+            identity.project_id,
+        ])?)
     }
     /// Persist SDK-canonical bytes with the actual constructed client's declaration.
     /// No external request is sent and no admission intent is consumed.

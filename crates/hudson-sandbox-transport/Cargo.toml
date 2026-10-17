@@ -12,7 +12,6 @@ hudson-core.workspace = true
 sandbox-client = { git = "https://github.com/hudson-infinity/hudson-sandbox.git", rev = "aac70c726e542ad4701dda64931d62135beb7da0" }
 serde_json.workspace = true
 thiserror.workspace = true
-sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

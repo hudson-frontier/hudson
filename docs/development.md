@@ -131,7 +131,8 @@ Chat tool calls retain
 thinking, redacted thinking, and interleaved text in checkpoint metadata. Tool
 executors receive arguments, not that metadata. Tests cover checkpoint roundtrips.
 This is not universal model/modality support: multimodal input, server-side tools,
-all provider-specific modes, and optional thinking-budget configuration are absent.
+and some provider-specific modes are absent. Optional reasoning effort and native
+thinking budgets are described in the [harness controls guide](harness-controls.md).
 
 Supply `ModelExecutor` to integrate another model protocol. Model/provider
 credentials belong to executors and never to Agent definitions or checkpoints.
@@ -319,8 +320,9 @@ backend/schema compatibility and advancing checkpoints. Custom `ModelExecutor` a
 `ToolExecutor` implementations own IO. No loop callback bypasses runtime authority.
 Public views omit checkpoints, raw requests, and credentials.
 
-Context currently retains full exchanges under a byte ceiling; it does not silently
-truncate, summarize, retrieve persistent memory, or share sessions. Execution limits
+Context retains complete exchanges under a byte ceiling and can archive older
+evidence with explicit retrieval. It does not silently truncate, summarize, or
+share sessions. Execution limits
 bound steps, calls, operations, batches, context and payloads; provider transports
 have timeouts, but arbitrary synchronous Rust tools cannot be forcibly interrupted.
 Sandbox requests fail closed until the separate Hudson Sandbox integration exists.

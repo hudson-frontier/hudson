@@ -18,6 +18,23 @@ repository's implementation alone establishes an integrated isolation guarantee.
 The local adapter contract and acceptance work is tracked in
 [Hudson issue #17](https://github.com/hudson-infinity/hudson/issues/17).
 
+The current protocol foundation persists exact request bytes, stable mutation
+keys, backend profile identity, admitted-attempt fences and original-operation
+receipts. The transport crate uses the public v1 SDK and verifies the constructed
+client's canonical origin/project declaration before owned receipt observation.
+That identity accessor is pinned to independently merged SDK commit
+`aac70c726e542ad4701dda64931d62135beb7da0`. The
+[adapter contract](../sandbox-adapter-contract.md) records the ownership and
+recovery mappings. These protocol checks do not enable Runtime dispatch or
+establish guest isolation.
+
+Real local acceptance additionally needs a compatible Linux host with KVM,
+usable delegated cgroup v2 controllers, a matching verified Firecracker/jailer
+pair, trusted image artifacts and an explicit operator-approved command/resource
+mapping. The sandbox repository's `scripts/doctor.py --profile linux-runtime`
+checks prerequisites. Protocol fixtures or a successful KVM device query cannot
+replace create/execute/cancel/destroy and physical cleanup evidence on that host.
+
 ## Responsibilities
 
 | Hudson main repository | Hudson Sandbox repository |

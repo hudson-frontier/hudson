@@ -1264,7 +1264,7 @@ dependencies = [
  "rcgen",
  "sandbox-client",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tempfile",
  "thiserror",
  "tokio",
@@ -2935,7 +2935,7 @@ dependencies = [
 [[package]]
 name = "sandbox-client"
 version = "0.0.0"
-source = "git+https://github.com/hudson-infinity/hudson-sandbox.git?rev=0a687fe934279549773d0b1b31ac4238e16a73a5#0a687fe934279549773d0b1b31ac4238e16a73a5"
+source = "git+https://github.com/hudson-infinity/hudson-sandbox.git?rev=aac70c726e542ad4701dda64931d62135beb7da0#aac70c726e542ad4701dda64931d62135beb7da0"
 dependencies = [
  "base64 0.22.1",
  "hex",

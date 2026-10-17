@@ -25,6 +25,19 @@ pub enum Error {
     Oversized,
     #[error(transparent)]
     Sdk(#[from] sandbox_client::Error),
+    #[error("sandbox storage task could not complete")]
+    StoreTask,
+}
+
+async fn blocking_store<T, F>(operation: F) -> Result<T, Error>
+where
+    T: Send + 'static,
+    F: FnOnce() -> hudson_core::Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|_| Error::StoreTask)?
+        .map_err(Error::Store)
 }
 
 /// Canonical SDK wire body; no credentials or inferred package/command mapping.
@@ -136,7 +149,14 @@ impl QualificationObserver {
         step: Step,
         max_payload_bytes: usize,
     ) -> Result<BoundObservation, Error> {
-        let binding = store.sandbox_binding(actor, fence, step.clone())?;
+        let read_store = store.clone();
+        let read_actor = actor.clone();
+        let read_fence = fence.clone();
+        let read_step = step.clone();
+        let binding = blocking_store(move || {
+            read_store.sandbox_observation_binding(&read_actor, &read_fence, read_step)
+        })
+        .await?;
         if binding.profile_fingerprint != self.profile_fingerprint()? {
             return Err(Error::ProfileMismatch);
         }
@@ -146,7 +166,13 @@ impl QualificationObserver {
         if observation.decision == Decision::Reconcile {
             return Err(Error::Reconcile);
         }
-        let binding = store.record_sandbox_receipt(actor, fence, step, &receipt)?;
+        let write_store = store.clone();
+        let write_actor = actor.clone();
+        let write_fence = fence.clone();
+        let binding = blocking_store(move || {
+            write_store.record_sandbox_receipt(&write_actor, &write_fence, step, &receipt)
+        })
+        .await?;
         Ok(BoundObservation {
             binding,
             observation,
@@ -210,6 +236,21 @@ impl QualificationObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocked_storage_does_not_stall_the_async_executor() {
+        let (release, blocked) = std::sync::mpsc::channel();
+        let storage = blocking_store(move || {
+            blocked
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .map_err(|_| hudson_core::Error::Invalid("async executor stalled".into()))
+        });
+        let progress = async move {
+            tokio::task::yield_now().await;
+            release.send(()).unwrap();
+        };
+        let (result, ()) = tokio::join!(storage, progress);
+        result.unwrap();
+    }
     #[test]
     fn canonical_bytes_preserve_absolute_deadline_and_reject_normalization() {
         let request = PreparedBody::Execute(CommandInput {

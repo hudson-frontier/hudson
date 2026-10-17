@@ -1,8 +1,8 @@
 # Public sandbox SDK transport foundation
 
 Contributes to Hudson #17 using `sandbox-client` 0.0.0 pinned to public sandbox
-commit `0a687fe934279549773d0b1b31ac4238e16a73a5` (upstream PR122, an explicit
-integration dependency). This crate does not dispatch mutations, enable Sandbox
+merge commit `aac70c726e542ad4701dda64931d62135beb7da0` (upstream PR122 was
+independently merged with passing checks). This crate does not dispatch mutations, enable Sandbox
 tools, execute a VM, or attach agent task results to Hudson runs.
 
 `PreparedBody` serializes the SDK's typed create/execute/destroy models.
@@ -29,6 +29,14 @@ error payloads stay bounded (caller limit, maximum 64 KiB), sensitive and worklo
 controlled. Types carrying them intentionally lack Debug. Unknown/expired or
 mismatched operation/sandbox/kind require reconciliation without writing completion.
 A successful execute receipt is operation evidence, not agent task success.
+
+The initial read validates the current pending operation, request digest and
+attempt before network IO; a historical binding alone cannot authorize a GET.
+Receipt recording repeats these checks after the GET. Both synchronous Store
+operations run on Tokio blocking workers, so a PostgreSQL wait cannot stall the
+async executor. Only identity values and shared Store handles are cloned for
+those workers. Cancellation may leave an already started storage task running;
+it cannot cause a mutation to be sent or bypass receipt fencing.
 
 Matching the declared profile prevents accidental configuration drift. It is
 **not authenticated project identity or guest policy proof**. The sandbox server

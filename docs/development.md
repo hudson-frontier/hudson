@@ -316,6 +316,10 @@ Sandbox requests fail closed until the separate Hudson Sandbox integration exist
 
 ## Verification
 
+The runner also checks the reviewed preview HTTP contract baseline and runs the
+standard-library Python client's local protocol regressions. See
+[API compatibility](api-compatibility.md) when changing the HTTP schema.
+
 Run the local suite from any working directory using the script’s path:
 
 ```sh

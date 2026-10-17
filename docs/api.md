@@ -7,6 +7,9 @@ schema declares bearer authentication as required on protected instances and
 no authentication on unprotected local instances.
 Import that document into an OpenAPI-capable client to inspect request and
 response schemas. The API is currently a preview with unversioned paths.
+The [compatibility policy](api-compatibility.md) defines reviewed contract
+revisions and drift checks. A [thin Python client](../integrations/python/README.md)
+supports local authenticated publication, run controls and bounded event observation.
 
 Start with the [README server command](../README.md#use-the-http-api). This host
 binds to loopback and uses one configured workspace/actor identity. Agent definitions
@@ -40,7 +43,8 @@ explicitly resume interrupted runs. Unknown external effects need the separate
 Migration from the earlier preview API: an omitted `limit` now returns at most
 100 events rather than all remaining history. HTTP consumers must drain pages
 before treating history as complete; the array shape alone does not indicate
-completion. There is currently no published Hudson SDK to update. The CLI
+completion. The local Python client supports bounded pages and cursor reconnects;
+there is no registry-published Hudson SDK. The CLI
 `hudson-cli events RUN_UUID --after N` reads one page, so repeat it with the last
 returned `sequence` until the result is `[]`. Use the `follow` command below for automatic draining and live observation. Internal Rust
 `Store::events()` callers continue receiving the complete history.

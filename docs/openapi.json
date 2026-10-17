@@ -3,7 +3,7 @@
   "info": {
     "title": "Hudson local agent API",
     "version": "0.1.0",
-    "description": "Preview API for a loopback-only, single-identity host. Paths are currently unversioned and compatibility is not promised. Agent configuration is loaded at startup; this API does not publish agents or manage credentials. All timestamps are Unix milliseconds. Model and tool execution is asynchronous relative to submissions. When started with --require-api-token, every route requires a persisted scoped bearer credential. Without that option this is an unprotected loopback development API. Authentication mode is a host setting, not a per-request choice. Hosted multi-tenant serving and event streaming are not implemented."
+    "description": "Preview API for a loopback-only, single-identity host. Unversioned paths follow the reviewed preview contract in docs/api-compatibility.json. Configured mode loads agents at startup; authenticated catalog mode publishes immutable tools and agents through approved operator connections. Credential issuance remains an offline operator action. All timestamps are Unix milliseconds. Model and tool execution is asynchronous relative to submissions. When started with --require-api-token, every route requires a persisted scoped bearer credential. Without that option this is an unprotected loopback development API. Authentication mode is a host setting, not a per-request choice. Hosted multi-tenant serving and event streaming are not implemented."
   },
   "servers": [
     {

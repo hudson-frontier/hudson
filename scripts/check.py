@@ -34,6 +34,8 @@ def main():
 
     run('cargo', 'fmt', '--all', '--', '--check')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_repository.py', '-v')
+    run(sys.executable, 'scripts/check_api_compatibility.py')
+    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'integrations/python', '-v')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'examples/project-files', '-v')
     test = ['cargo', 'test', '--locked', '--workspace', '--all-features', '--exclude', 'hudson-temporal']
     if args.database:

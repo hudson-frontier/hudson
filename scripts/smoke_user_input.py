@@ -13,7 +13,7 @@ import urllib.request
 import urllib.error
 import uuid
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'integrations/python'))
-from hudson_client import HudsonClient
+from hudson_client import HudsonClient, HttpError
 calls = []
 failures = []
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -90,6 +90,13 @@ try:
         process.terminate(); process.wait(timeout=5)
         api = start()
         assert request('GET', '/runs/' + run)['wait'] == waiting['wait']
+        # Zero is a valid wire identity; the server decides whether it matches
+        # this pending question, rather than the client rejecting it locally.
+        try:
+            HudsonClient(api).reply(run, 'stale answer', request_key='zero-question', question_id=0)
+            raise AssertionError('stale zero question accepted')
+        except HttpError as error:
+            assert error.status == 409
         try:
             request('POST', '/runs/' + run + '/input', {'input':'stale answer','request_key':'stale','question_id':question_id + 1})
             raise AssertionError('wrong question accepted')

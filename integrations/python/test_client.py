@@ -176,6 +176,8 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.requests[-1][3], {'approved': False})
         self.client.reply(RUN, {'city': 'Boston'}, request_key='answer-one', question_id=12)
         self.assertEqual(self.requests[-1][3]['question_id'], 12)
+        self.client.reply(RUN, 'legacy answer', request_key='legacy-answer', question_id=0)
+        self.assertEqual(self.requests[-1][3]['question_id'], 0)
         self.client.resume(RUN)
         self.client.cancel(RUN)
         self.client.tool('lookup', 1)
@@ -191,6 +193,9 @@ class ClientTests(unittest.TestCase):
             self.client.agent('agent', 0)
         with self.assertRaises(ValueError):
             self.client.reply(RUN, 'Boston', request_key='answer-one', question_id=OTHER)
+        for invalid in (-1, True, 2**64):
+            with self.assertRaises(ValueError):
+                self.client.reply(RUN, 'Boston', request_key='answer-one', question_id=invalid)
         self.assertEqual(len(self.requests), before)
 
     def test_mismatched_run_and_unknown_status_stop(self):

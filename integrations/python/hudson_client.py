@@ -199,7 +199,7 @@ class HudsonClient:
     def reply(self, run_id, input, *, request_key, question_id):
         return self._request('POST', f'/runs/{_id(run_id)}/input', {
             'input': input, 'request_key': _key(request_key),
-            'question_id': _integer(question_id, 1, 2**64 - 1, 'question identity')})
+            'question_id': _integer(question_id, 0, 2**64 - 1, 'question identity')})
 
     def resume(self, run_id):
         return self._request('POST', f'/runs/{_id(run_id)}/resume')

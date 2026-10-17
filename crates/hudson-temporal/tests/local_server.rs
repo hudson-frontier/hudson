@@ -607,10 +607,16 @@ fn cli_scenario(mode: SubmissionMode) {
                 server_thread.join().unwrap();
                 assert_eq!(store.inspect(&actor, incompatible).unwrap().status, RunStatus::Queued,
                     "a mismatched goal must remain deferred while valid work completes");
-                drop(worker);
                 if matches!(mode, SubmissionMode::Published) {
+                    drop(worker);
                     return;
                 }
+                // PostgreSQL completion precedes Temporal's workflow result.
+                // Keep the worker alive until Temporal records that result,
+                // then verify a completed run can be read without a worker.
+                let finished = output(command().args(["run","--resume", &id.to_string()]).spawn().unwrap());
+                assert!(finished.status.success(), "{}", String::from_utf8_lossy(&finished.stderr));
+                drop(worker);
                 let completed = output(command().args(["run","--resume", &id.to_string()]).spawn().unwrap());
                 assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
                 return;

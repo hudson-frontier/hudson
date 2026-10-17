@@ -109,12 +109,12 @@ impl Server {
                         if mode == "disconnect" {
                             continue;
                         }
-                        json!({"content":[{"type":"text","text": if mode == "large" { "x".repeat(4096) } else { "hello".into() }}],"isError":mode == "error"})
+                        json!({"content":[{"type":"text","text": if matches!(mode, "large" | "sse_large") { "x".repeat(4096) } else { "hello".into() }}],"isError":mode == "error"})
                     }
                     other => panic!("unexpected method {other}"),
                 };
                 let body = json!({"jsonrpc":"2.0","id":request["id"],"result":result}).to_string();
-                let (body, content_type) = if mode == "sse" {
+                let (body, content_type) = if matches!(mode, "sse" | "sse_large") {
                     (
                         format!("event: message\ndata: {body}\n\n"),
                         "text/event-stream",
@@ -122,7 +122,7 @@ impl Server {
                 } else {
                     (body, "application/json")
                 };
-                if mode == "large" {
+                if matches!(mode, "large" | "sse_large") {
                     let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nConnection: close\r\n\r\n{body}");
                 } else {
                     let _ = write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
@@ -199,7 +199,7 @@ fn schema_drift_prevents_dispatch() {
 }
 #[test]
 fn interrupted_oversized_or_error_results_are_unknown_and_never_retried() {
-    for mode in ["disconnect", "large", "timeout", "error"] {
+    for mode in ["disconnect", "large", "sse_large", "timeout", "error"] {
         let server = Server::new(mode);
         let mut registry = ToolRegistry::new();
         let tools = register_tools(&server.config(), &mut registry, "workspace", "policy").unwrap();

@@ -6,7 +6,14 @@ use std::collections::BTreeSet;
 /// serde_json's default sorted object maps make object-key order irrelevant here.
 /// This is an internal digest format, not an implementation of a public canonical-JSON standard.
 pub fn digest(value: &impl serde::Serialize) -> Result<String> {
-    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
+    let bytes = Sha256::digest(serde_json::to_vec(value)?);
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    Ok(encoded)
 }
 
 fn schema_allowed(value: &Value) -> Result<()> {

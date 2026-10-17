@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [Harness checks]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Confirm CI passed for current main
+        id: current
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const {data} = await github.rest.repos.getBranch({...context.repo, branch: 'main'});
+            core.setOutput('passed', data.commit.sha === context.payload.workflow_run.head_sha);
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.current.outputs.passed == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Prepare release labels
+        if: steps.current.outputs.passed == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await require('./.github/scripts/automation.cjs').syncLabels(github, context.repo);
+      - name: Update release PR or tag a merged release
+        if: steps.current.outputs.passed == 'true'
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - name: Start required checks on bot PRs
+        if: steps.current.outputs.passed == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_PRS: ${{ steps.release.outputs.prs }}
+        with:
+          script: |
+            const {labelItem} = require('./.github/scripts/automation.cjs');
+            for (const output of JSON.parse(process.env.RELEASE_PRS || '[]')) {
+              const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: output.number});
+              if (pr.state !== 'open' || pr.head.repo.full_name !== context.payload.repository.full_name) continue;
+              await labelItem(github, context.repo, pr);
+              // GITHUB_TOKEN-created PRs do not emit another workflow run.
+              // workflow_dispatch is the explicit, supported exception.
+              await github.rest.actions.createWorkflowDispatch({
+                ...context.repo, workflow_id: 'ci.yml', ref: pr.head.ref
+              });
+              await github.rest.actions.createWorkflowDispatch({
+                ...context.repo, workflow_id: 'pr-policy.yml', ref: pr.head.ref,
+                inputs: {pull_request_number: String(pr.number)}
+              });
+            }

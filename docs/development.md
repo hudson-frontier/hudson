@@ -409,9 +409,9 @@ pull requests and pushes to `main`. It installs the repository-pinned Rust toolc
 and starts an isolated PostgreSQL cluster on `/tmp`, then includes real local
 Temporal tests and all smoke scripts. Provider calls use local fixtures; provider
 credentials are not needed. Check and database logs are retained for seven days.
-The `CI` check depends on the unchanged `Rust, PostgreSQL, and Temporal` job and
-passes only when that full job succeeds. Failed, cancelled, or skipped integration
-checks fail the aggregate. This aggregate does not validate PR metadata or satisfy
-the separate `PR policy` requirement; that policy needs its own defined validations.
 The separate Harbor Docker benchmark plumbing remains an explicit check described
 in its integration README.
+
+The Harbor worker build uses a fresh Rustup directory under the job's temporary
+directory. It still selects `rust-toolchain.toml`, while avoiding incomplete
+toolchain components preinstalled in the hosted runner image.

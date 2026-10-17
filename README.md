@@ -1,5 +1,13 @@
 # Hudson
 
+[![CI](https://github.com/hudson-infinity/hudson/actions/workflows/ci.yml/badge.svg)](https://github.com/hudson-infinity/hudson/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+Hudson is open source under the [Apache License 2.0](LICENSE).
+Read [Contributing](CONTRIBUTING.md) before opening an issue or pull request,
+the [Code of Conduct](CODE_OF_CONDUCT.md) for community expectations, and
+[Security](SECURITY.md) to report vulnerabilities privately.
+
 A generic Rust agent harness. Define instructions, connect tools, and let Hudson
 run the model → tools → results → verification loop.
 

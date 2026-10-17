@@ -50,6 +50,17 @@ impl Backend for AgentLoop {
         checkpoint: &Checkpoint,
         input: Input,
     ) -> Result<Transition, HarnessError> {
+        let (input, mut queued) = match input {
+            Input::Queued { input, messages }
+                if !messages.is_empty()
+                    && messages.len() <= 16
+                    && !matches!(*input, Input::Queued { .. }) =>
+            {
+                (*input, messages)
+            }
+            Input::Queued { .. } => return Err(invalid("invalid queued input boundary")),
+            input => (input, Vec::new()),
+        };
         let mut state: State = if checkpoint.step == 0 && checkpoint.payload.is_null() {
             State::default()
         } else {
@@ -62,7 +73,7 @@ impl Backend for AgentLoop {
                     role: Role::User,
                     content: vec![Content::Json { value }],
                 });
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             (
                 Phase::Model,
@@ -124,7 +135,7 @@ impl Backend for AgentLoop {
                         },
                     }],
                 });
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             (Phase::Tools { calls }, Input::Tools { results }) => {
                 let expected: BTreeSet<_> = calls.iter().map(|c| &c.call_id).collect();
@@ -144,7 +155,7 @@ impl Backend for AgentLoop {
                         content: vec![Content::ToolResult { result }],
                     });
                 }
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             (
                 Phase::Model,
@@ -165,8 +176,12 @@ impl Backend for AgentLoop {
             }
             (Phase::Verification { candidate }, Input::Verification { passed: true, .. }) => {
                 let output = candidate.clone();
-                state.phase = Phase::Done;
-                Action::Complete { output }
+                if queued.is_empty() {
+                    state.phase = Phase::Done;
+                    Action::Complete { output }
+                } else {
+                    request(config, &mut state, &mut queued)?
+                }
             }
             (
                 Phase::Verification { .. },
@@ -176,10 +191,15 @@ impl Backend for AgentLoop {
                 },
             ) => {
                 state.history.messages.push(Message { role: Role::User, content: vec![Content::Text { text: format!("The output did not pass verification. Correct it using this feedback: {feedback}") }] });
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             _ => return Err(invalid("input does not match the pending loop action")),
         };
+        if !queued.is_empty() {
+            return Err(invalid(
+                "queued messages require a completed input boundary",
+            ));
+        }
         Ok(Transition {
             checkpoint: Checkpoint {
                 step: checkpoint
@@ -194,7 +214,18 @@ impl Backend for AgentLoop {
     }
 }
 
-fn request(config: &Config, state: &mut State) -> Result<Action, HarnessError> {
+fn request(
+    config: &Config,
+    state: &mut State,
+    queued: &mut Vec<Value>,
+) -> Result<Action, HarnessError> {
+    state
+        .history
+        .messages
+        .extend(queued.drain(..).map(|value| Message {
+            role: Role::User,
+            content: vec![Content::Json { value }],
+        }));
     let request = context::build(config, state.history.model_messages())?;
     state.phase = Phase::Model;
     Ok(Action::CallModel { request })

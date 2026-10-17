@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 pub struct AnthropicModel {
     transport: ChatModel,
     max_tokens: u32,
+    reasoning: Option<super::reasoning::Reasoning>,
 }
 fn invalid() -> ExecutionError {
     ExecutionError::Failed("unsupported or malformed Anthropic message".into())
@@ -14,7 +15,18 @@ impl AnthropicModel {
         Ok(Self {
             transport: ChatModel::new(endpoint, key, max_tokens)?,
             max_tokens,
+            reasoning: None,
         })
+    }
+    pub fn with_reasoning(
+        mut self,
+        reasoning: Option<super::reasoning::Reasoning>,
+    ) -> crate::Result<Self> {
+        if let Some(reasoning) = &reasoning {
+            reasoning.validate("anthropic", self.max_tokens)?;
+        }
+        self.reasoning = reasoning;
+        Ok(self)
     }
 }
 impl ModelExecutor for AnthropicModel {
@@ -23,10 +35,11 @@ impl ModelExecutor for AnthropicModel {
     }
     fn call(&mut self, request: &ModelRequest) -> Result<ModelResponse, ExecutionError> {
         self.transport.take_usage();
-        decode(
-            self.transport
-                .post_json(&encode(request, self.max_tokens)?, true)?,
-        )
+        let mut body = encode(request, self.max_tokens)?;
+        if let Some(reasoning) = &self.reasoning {
+            reasoning.apply(&mut body, true);
+        }
+        decode(self.transport.post_json(&body, true)?)
     }
 }
 fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionError> {

@@ -81,6 +81,8 @@ pub struct ModelProfile {
     pub api_key_env: Option<String>,
     #[serde(default = "output_tokens")]
     pub max_output_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<crate::adapters::reasoning::Reasoning>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -395,6 +397,9 @@ impl ModelProfile {
         value["endpoint"] = json!(self.endpoint);
         value["api_key_env"] = json!(self.api_key_env);
         value["max_output_tokens"] = json!(self.max_output_tokens);
+        if let Some(reasoning) = &self.reasoning {
+            value["reasoning"] = json!(reasoning);
+        }
         value
     }
 }
@@ -682,6 +687,25 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn operator_profiles_carry_reasoning_without_changing_omitted_defaults() {
+        let mut profile = catalog().models.remove(0);
+        assert!(serde_json::to_value(&profile)
+            .unwrap()
+            .get("reasoning")
+            .is_none());
+        let plain = profile.apply(json!({"name":"profile-agent","instructions":"finish"}));
+        assert!(plain.get("reasoning").is_none());
+        profile.reasoning = Some(crate::adapters::reasoning::Reasoning::Effort {
+            effort: crate::adapters::reasoning::Effort::Low,
+        });
+        let configured = profile.apply(json!({"name":"profile-agent","instructions":"finish"}));
+        assert_eq!(
+            configured["reasoning"],
+            json!({"type":"effort","effort":"low"})
+        );
+        Configuration::from_effective_definition(configured).unwrap();
+    }
     fn catalog() -> HostCatalog {
         serde_json::from_value(json!({"owner":{"workspace_id":"company","id":"owner"},
             "models":[{"reference":{"id":"standard","version":1},"provider":"openai","model":"fixture","endpoint":"http://127.0.0.1:9/model","api_key_env":"HUDSON_CUSTOMER_UNAVAILABLE_KEY"}],

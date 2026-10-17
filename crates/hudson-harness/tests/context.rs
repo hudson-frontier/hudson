@@ -68,3 +68,63 @@ fn mismatched_results_never_become_a_compaction_boundary() {
     history.messages.push(result("different"));
     assert_eq!(history.oldest_complete_exchange(), None);
 }
+
+#[test]
+fn newest_user_direction_survives_archiving_of_later_exchanges() {
+    let user = |text: &str| Message {
+        role: Role::User,
+        content: vec![Content::Text { text: text.into() }],
+    };
+    let answer = Message {
+        role: Role::Assistant,
+        content: vec![Content::Json {
+            value: json!("answer"),
+        }],
+    };
+    let mut history = History {
+        messages: vec![
+            user("original"),
+            user("old direction"),
+            answer.clone(),
+            user("current direction"),
+            answer,
+        ],
+        archive: None,
+    };
+    assert_eq!(history.complete_exchanges(), vec![1..2, 2..3, 4..5]);
+    while let Some(range) = history.oldest_complete_exchange() {
+        history.messages.drain(range);
+    }
+    assert_eq!(
+        history.messages,
+        vec![user("original"), user("current direction")]
+    );
+}
+
+#[test]
+fn duplicate_call_ids_cannot_form_an_archive_boundary() {
+    let call = Content::ToolCall {
+        call: ToolCall {
+            call_id: "same".into(),
+            name: "read".into(),
+            arguments: json!({}),
+            provider_metadata: json!(null),
+        },
+    };
+    let history = History {
+        messages: vec![
+            Message {
+                role: Role::User,
+                content: vec![],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![call.clone(), call],
+            },
+            result("same"),
+        ],
+        archive: None,
+    };
+    assert!(history.oldest_complete_exchange().is_none());
+    assert!(history.complete_exchanges().is_empty());
+}

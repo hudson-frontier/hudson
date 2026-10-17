@@ -122,6 +122,7 @@ fn tools_registry(store: Store) -> (ToolRegistry, Tool, ContextPolicy) {
         })
         .unwrap();
     let policy = ContextPolicy {
+        reserve_bytes: 0,
         offload_bytes: 4096,
         recent_exchanges: 1,
         excerpt_bytes: 256,

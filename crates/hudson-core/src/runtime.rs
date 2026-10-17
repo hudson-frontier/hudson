@@ -240,11 +240,14 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 .cloned()
                 .flatten())
         })?;
+        let (queued, queued_input) = self
+            .store
+            .read(|data| Ok(crate::inbox::prepare(data, id, input.clone())))?;
         let prepared = match crate::context::advance(
             &self.engine,
             &config,
             &run.state,
-            input.clone(),
+            queued_input,
             context_policy.as_ref(),
             &actor.workspace_id,
             id,
@@ -259,6 +262,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         let committed = self.store.transact(|d| {
             let mut current = d.run(actor, id)?.clone();
             if current.revision != run.revision { return Err(Error::Conflict("stale run revision".into())); }
+            if !crate::inbox::unchanged(d, id, &queued) { return Ok(false); }
             crate::context::commit(d, &prepared.artifacts)?;
             crate::context::commit(d, &dependency_artifacts)?;
             bounded(&transition.checkpoint, current.limits.max_context_bytes)?;
@@ -337,6 +341,8 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                     approval: None, attempts: vec![], result: None, revision: 0 });
             }
             let status = current.status;
+            crate::inbox::consume(d, id, &queued);
+            if status.terminal() { crate::inbox::discard(d, id); }
             crate::memory::retain_completed(d, &current)?;
             d.runs.insert(id, current);
             for operation in new_operations {
@@ -349,8 +355,11 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             } else if status == RunStatus::Waiting {
                 d.event(id, None, EventType::RunWaiting, None, json!({}));
             }
-            Ok(())
+            Ok(true)
         });
+        if matches!(committed, Ok(false)) {
+            return self.store.inspect(actor, id);
+        }
         if let Err(error) = committed {
             if matches!(error, Error::Conflict(_)) {
                 return Err(error);
@@ -458,6 +467,9 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             }
             run.revision += 1;
             let status = run.status;
+            if status == RunStatus::Failed {
+                crate::inbox::discard(d, id);
+            }
             d.runs.insert(id, run);
             if status == RunStatus::Failed {
                 d.event(
@@ -482,6 +494,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             run.status = RunStatus::Failed;
             run.reason = Some(reason.into());
             run.revision += 1;
+            crate::inbox::discard(d, id);
             d.event(
                 id,
                 None,
@@ -655,6 +668,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 run.status = RunStatus::Cancelling;
                 run.next_input = None;
                 run.revision += 1;
+                crate::inbox::discard(d, *id);
                 d.event(
                     *id,
                     None,

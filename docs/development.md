@@ -59,6 +59,7 @@ a supplied task or run ID; it is not a distributed queue consumer.
 | `provider`, `model`, `endpoint` | Provider preset, model ID, full transport URL |
 | `api_key_env` | Credential environment-variable name, never its value |
 | `max_output_tokens` | Provider output cap; default 1024 |
+| `reasoning` | Explicit effort or native thinking budget, pinned to the agent version |
 | `legacy_token_limit` | Use `max_tokens` on a custom compatible chat endpoint |
 | `limits` | Partial object overriding call/operation/step/batch/context/payload defaults |
 | `input_schema` | Task JSON Schema checked before a Run can dispatch work |
@@ -73,6 +74,9 @@ a supplied task or run ID; it is not a distributed queue consumer.
 | `http_tools` | Versioned HTTP tool definitions and approval settings |
 | `subagents` | Nested specialist agent configurations |
 | `shared_model_budget` | Persisted group ID and model-call ceiling |
+
+The [harness controls guide](harness-controls.md) covers durable steering,
+follow-ups, context headroom, and provider reasoning settings.
 
 Unknown configuration/limit fields are rejected. When changing definitions in an
 existing store, increment the Agent version. Tool references, skill contents, and

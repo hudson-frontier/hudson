@@ -6,6 +6,13 @@ independently of the release version. No stable `/v1` API or cross-version
 compatibility guarantee is declared. Use matching server/client revisions and
 run local acceptance before upgrading.
 
+The `hudson-preview-2026-10-17-r2` revision adds the actor-scoped
+`/runs/{id}/messages` queue controls and the `input_queued`, `input_consumed`, and
+`input_queue_cleared` event types. Existing routes retain their request and
+response shapes. Clients with exhaustive event-type enums must accept these
+values before upgrading. The bundled Python caller already treats event payloads
+as arbitrary JSON; its queue methods require a server implementing this revision.
+
 Within a reviewed contract revision, clients tolerate new optional response
 properties and preserve arbitrary JSON results/event payloads. Adding optional
 request properties or endpoints is compatible when existing defaults, status

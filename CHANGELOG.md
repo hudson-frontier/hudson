@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/hudson-frontier/hudson/compare/v0.1.0...v1.0.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **harness:** Rust embedders must handle queued input and initialize the new context/profile fields. Strict HTTP clients must accept the reviewed queue lifecycle events. Queue use promotes its PostgreSQL namespace to storage format 2; upgrade all database writers before use.
+
+### Features
+
+* **harness:** add durable input and provider controls ([b790f48](https://github.com/hudson-frontier/hudson/commit/b790f48a553edc32914deb9c83009e0ae2d473fd))
+
 ## [0.1.0](https://github.com/hudson-frontier/hudson/releases/tag/v0.1.0) (2026-10-17)
 
 

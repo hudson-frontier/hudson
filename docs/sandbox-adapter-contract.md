@@ -4,6 +4,11 @@ Tracked by Hudson #17 and hudson-sandbox #112. Public HTTP schema baseline:
 `hudson-infinity/hudson-sandbox` commit `aa5cef5c51b7c735e6ede82d2c4f6e90f4f4f119`,
 `api/openapi.json` and generated `crates/sandbox-client/src/models.rs`.
 
+Durable request preparation checks the run's payload byte limit before JSON
+validation. Invalid or oversized bodies do not bind an idempotency key or consume
+an admission intent; callers can correct the body before sending. Validation
+preserves the exact original bytes without retaining a parsed JSON tree.
+
 The backend already has an authenticated HTTP API and generated Rust client.
 Hudson must reuse that transport rather than invent another guest RPC protocol.
 Create, execute, destroy and cancellation are independent admitted operations.

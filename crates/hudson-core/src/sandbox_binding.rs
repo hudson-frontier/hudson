@@ -112,12 +112,13 @@ impl Store {
             {
                 return Err(Error::Invalid("invalid initial sandbox request".into()));
             }
-            let _: serde_json::Value = serde_json::from_str(&body)?;
             if body.len() > d.runs[&fence.run_id].limits.max_payload_bytes {
                 return Err(Error::Invalid(
                     "sandbox body exceeds run payload limit".into(),
                 ));
             }
+            // Validate bounded bytes without allocating a second copy of their JSON tree.
+            let _: serde::de::IgnoredAny = serde_json::from_str(&body)?;
             let id = key(&fence, &pending);
             if let Some(existing) = d.sandbox_bindings.get(&id) {
                 if existing.fence == fence
@@ -374,6 +375,45 @@ mod tests {
             prepare(&store, &actor, &fence, &pending)
                 .pending
                 .admission_attempted
+        );
+    }
+    #[test]
+    fn body_limit_precedes_json_parsing_and_rejection_does_not_bind_key() {
+        let (store, actor, fence, pending) = seeded(Store::default());
+        store
+            .transact(|d| {
+                d.runs
+                    .get_mut(&fence.run_id)
+                    .unwrap()
+                    .limits
+                    .max_payload_bytes = 16;
+                Ok(())
+            })
+            .unwrap();
+        let error = store
+            .prepare_sandbox_request(
+                &actor,
+                fence.clone(),
+                pending.clone(),
+                "invalid oversized JSON".into(),
+                PROFILE,
+            )
+            .err()
+            .unwrap();
+        assert!(
+            matches!(error, Error::Invalid(message) if message == "sandbox body exceeds run payload limit")
+        );
+        assert!(store.sandbox_binding(&actor, &fence, Step::Create).is_err());
+        assert!(store
+            .prepare_sandbox_request(&actor, fence.clone(), pending.clone(), "{".into(), PROFILE,)
+            .is_err());
+        let body = "{\"v\":[1,true]}";
+        assert_eq!(
+            store
+                .prepare_sandbox_request(&actor, fence, pending, body.into(), PROFILE)
+                .unwrap()
+                .body,
+            body
         );
     }
     #[test]

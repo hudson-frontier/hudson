@@ -45,6 +45,9 @@ jobs:
       - name: Install Harbor integration and its declared dependencies
         run: python -m pip install ./integrations/harbor
       - name: Build the real worker for the integration tests
+        env:
+          # Runner images can contain incomplete components for the pinned toolchain.
+          RUSTUP_HOME: ${{ runner.temp }}/hudson-rustup
         run: cargo build --locked -p hudson-worker
       - name: Test Harbor adapter and verifiers with local fixtures
         env:

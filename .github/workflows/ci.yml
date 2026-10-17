@@ -3,17 +3,54 @@ name: Harness checks
 on:
   pull_request:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: harness-checks-${{ github.workflow }}-${{ github.ref }}
+  group: harness-checks-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  repository:
+    name: Repository policy and workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check licensing and version consistency
+        run: python3 scripts/check_repository.py
+      - name: Test community automation
+        run: node --test .github/scripts/*.test.cjs
+      - name: Validate GitHub workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+  harbor:
+    name: Harbor integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install Harbor integration and its declared dependencies
+        run: python -m pip install ./integrations/harbor
+      - name: Build the real worker for the integration tests
+        run: cargo build --locked -p hudson-worker
+      - name: Test Harbor adapter and verifiers with local fixtures
+        env:
+          HUDSON_WORKER: ${{ github.workspace }}/target/debug/hudson-worker
+        run: python -m unittest discover -s integrations/harbor/tests -v
+
   integration:
     name: Rust, PostgreSQL, and Temporal
     runs-on: ubuntu-24.04
@@ -25,7 +62,7 @@ jobs:
       RUST_BACKTRACE: '1'
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install pinned Rust toolchain
@@ -48,7 +85,7 @@ jobs:
           python3 scripts/check.py --database hudson_harness_test_20260921 --temporal 2>&1 | tee "$RUNNER_TEMP/hudson-check.log"
       - name: Preserve check logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: harness-check-logs
           path: |
@@ -63,3 +100,24 @@ jobs:
           if [ -f "$RUNNER_TEMP/hudson-pg/postmaster.pid" ]; then
             "$(pg_config --bindir)/pg_ctl" -D "$RUNNER_TEMP/hudson-pg" -m fast -w stop
           fi
+
+  ci:
+    name: CI
+    if: always()
+    needs: [repository, harbor, integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job to succeed
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          results = json.loads(os.environ['JOB_RESULTS'])
+          failed = [name for name, job in results.items() if job['result'] != 'success']
+          if failed:
+              raise SystemExit('Required jobs did not pass: ' + ', '.join(failed))
+          print('All CI checks passed.')
+          PY

@@ -27,8 +27,62 @@ pub(crate) struct ScheduleRequest {
     pub acknowledged: bool,
     #[serde(default)]
     pub last_attempt: u64,
+    #[serde(default)]
+    pub published_at: Option<u64>,
+}
+/// Scheduling publication evidence only; never proof of execution or completion.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleStatus {
+    Unscheduled,
+    Pending,
+    Published,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScheduleView {
+    pub root_run_id: Uuid,
+    pub status: ScheduleStatus,
+    pub last_attempt_at: Option<u64>,
+    /// Old acknowledged snapshots may have no recorded publication time.
+    pub published_at: Option<u64>,
 }
 impl Store {
+    /// Inspect the owned root's saved receipt without contacting a scheduler.
+    pub fn inspect_schedule(&self, actor: &Actor, id: Uuid) -> Result<ScheduleView> {
+        self.read(|data| {
+            let mut root = id;
+            let mut visited = std::collections::BTreeSet::new();
+            loop {
+                if !visited.insert(root) {
+                    return Err(Error::Conflict("cyclic run ancestry".into()));
+                }
+                let run = data.run(actor, root)?;
+                match run.parent_operation {
+                    Some(operation) => {
+                        root = data
+                            .operations
+                            .get(&operation)
+                            .ok_or(Error::NotFound)?
+                            .run_id
+                    }
+                    None => break,
+                }
+            }
+            let request = data.schedule_requests.get(&root);
+            Ok(ScheduleView {
+                root_run_id: root,
+                status: match request {
+                    None => ScheduleStatus::Unscheduled,
+                    Some(request) if request.acknowledged => ScheduleStatus::Published,
+                    Some(_) => ScheduleStatus::Pending,
+                },
+                last_attempt_at: request.and_then(|request| {
+                    (request.last_attempt != 0).then_some(request.last_attempt)
+                }),
+                published_at: request.and_then(|request| request.published_at),
+            })
+        })
+    }
     /// Check that a run (or its root for delegated work) belongs to this scheduler.
     /// This is also required before accepting controls from a scheduling-only host.
     pub fn validate_schedule(
@@ -164,8 +218,66 @@ impl Store {
             if &request.target != target {
                 return Err(Error::Conflict("scheduling target changed".into()));
             }
-            request.acknowledged = true;
+            if !request.acknowledged {
+                request.acknowledged = true;
+                request.published_at = Some(now());
+            }
             Ok(())
         })
+    }
+}
+
+#[cfg(all(test, feature = "fixtures"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn receipts_survive_snapshot_reopen_and_legacy_acknowledgments() {
+        let runtime = crate::fixtures::runtime().unwrap();
+        let actor = crate::fixtures::actor();
+        let target = ScheduleTarget {
+            scheduler: "temporal:test".into(),
+            task_queue: "queue".into(),
+        };
+        let id = runtime
+            .submit_scheduled(
+                &actor,
+                crate::fixtures::agent_ref(),
+                serde_json::json!({"order_id":"123","action":"lookup"}),
+                None,
+                None,
+                Some(target.clone()),
+            )
+            .unwrap();
+        runtime
+            .store
+            .record_schedule_attempt(&actor, id, &target)
+            .unwrap();
+        runtime
+            .store
+            .acknowledge_schedule(&actor, id, &target)
+            .unwrap();
+        let before = runtime.store.inspect_schedule(&actor, id).unwrap();
+        let mut snapshot = runtime
+            .store
+            .read(|data| Ok(serde_json::to_value(data)?))
+            .unwrap();
+        let reopened = Store::staging(serde_json::from_value(snapshot.clone()).unwrap());
+        assert_eq!(reopened.inspect_schedule(&actor, id).unwrap(), before);
+        let request = snapshot["schedule_requests"][id.to_string()]
+            .as_object_mut()
+            .unwrap();
+        request.remove("published_at");
+        request.remove("last_attempt");
+        let legacy = Store::staging(serde_json::from_value(snapshot).unwrap());
+        let receipt = legacy.inspect_schedule(&actor, id).unwrap();
+        assert_eq!(receipt.status, ScheduleStatus::Published);
+        assert_eq!(receipt.last_attempt_at, None);
+        assert_eq!(receipt.published_at, None);
+        legacy.acknowledge_schedule(&actor, id, &target).unwrap();
+        assert_eq!(
+            legacy.inspect_schedule(&actor, id).unwrap(),
+            receipt,
+            "do not invent a timestamp for legacy acknowledgment"
+        );
     }
 }

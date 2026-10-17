@@ -7,6 +7,8 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.92"
 publish = false
+license = "Apache-2.0"
+repository = "https://github.com/hudson-infinity/hudson"
 
 [workspace.dependencies]
 hudson-harness = { path = "crates/hudson-harness" }
@@ -15,8 +17,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
-sha2 = "0.10"
-jsonschema = { version = "0.56", default-features = false }
+sha2 = "0.11"
+jsonschema = { version = "0.58", default-features = false }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
 axum = "0.8"

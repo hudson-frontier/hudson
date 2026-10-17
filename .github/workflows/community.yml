@@ -1,0 +1,40 @@
+name: Community automation
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+    paths: [.github/labels.json, .github/scripts/automation.cjs, .github/workflows/community.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: community-${{ github.event.issue.number || github.event.pull_request.number || 'sync' }}
+  cancel-in-progress: false
+
+jobs:
+  labels:
+    name: Label issues and pull requests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # This privileged job only runs trusted default-branch code. Never check
+      # out a PR head or execute any issue/PR text.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const {syncLabels, labelItem} = require('./.github/scripts/automation.cjs');
+            await syncLabels(github, context.repo);
+            const item = context.payload.issue || context.payload.pull_request;
+            if (item) await labelItem(github, context.repo, item, context.payload.action === 'opened');

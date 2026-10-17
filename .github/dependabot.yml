@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    commit-message:
+      prefix: build
+    groups:
+      rust:
+        patterns: ['*']
+        update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /integrations/harbor
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: [dependencies, 'area: harbor']
+    commit-message:
+      prefix: build

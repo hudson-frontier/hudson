@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "9c2288ba0389676ada57a2a79d8636c266931eb6",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "include-component-in-tag": false,
+      "bump-minor-pre-major": false,
+      "bump-patch-for-minor-pre-major": false,
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(!@.source && (@.name.value=='hudson-harness' || @.name.value=='hudson-core' || @.name.value=='hudson-server' || @.name.value=='hudson-worker' || @.name.value=='hudson-cli' || @.name.value=='hudson-temporal'))].version"
+        },
+        {
+          "type": "toml",
+          "path": "integrations/harbor/pyproject.toml",
+          "jsonpath": "$.project.version"
+        }
+      ]
+    }
+  }
+}

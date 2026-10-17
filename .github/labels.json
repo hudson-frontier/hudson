@@ -1,0 +1,23 @@
+[
+  {"name":"triage","color":"FBCA04","description":"Needs maintainer assessment"},
+  {"name":"bug","color":"D73A4A","description":"Incorrect behavior","types":["fix"]},
+  {"name":"enhancement","color":"A2EEEF","description":"New functionality","types":["feat"]},
+  {"name":"performance","color":"5319E7","description":"Measured performance improvement","types":["perf"]},
+  {"name":"documentation","color":"0075CA","description":"Documentation change","types":["docs"],"paths":["docs/","README.md","CONTRIBUTING.md","CODE_OF_CONDUCT.md","SECURITY.md","AGENTS.md"]},
+  {"name":"tests","color":"BFDADC","description":"Test coverage","types":["test"],"paths":["scripts/smoke_","crates/hudson-temporal/tests/"]},
+  {"name":"maintenance","color":"CFD3D7","description":"Build, refactoring, or maintenance","types":["build","refactor","chore","revert"]},
+  {"name":"ci","color":"1D76DB","description":"CI and repository automation","types":["ci"],"paths":[".github/","scripts/check","release-please-config.json",".release-please-manifest.json"]},
+  {"name":"dependencies","color":"0366D6","description":"Dependency update","paths":["Cargo.toml","Cargo.lock","integrations/harbor/pyproject.toml"]},
+  {"name":"breaking change","color":"B60205","description":"Requires a migration"},
+  {"name":"area: harness","color":"C5DEF5","description":"Portable agent loop","paths":["crates/hudson-harness/"]},
+  {"name":"area: core","color":"C5DEF5","description":"Runtime and execution controls","paths":["crates/hudson-core/"]},
+  {"name":"area: cli","color":"C5DEF5","description":"Command-line client","paths":["crates/hudson-cli/"]},
+  {"name":"area: server","color":"C5DEF5","description":"HTTP server","paths":["crates/hudson-server/"]},
+  {"name":"area: worker","color":"C5DEF5","description":"Worker execution","paths":["crates/hudson-worker/"]},
+  {"name":"area: temporal","color":"C5DEF5","description":"Temporal execution","paths":["crates/hudson-temporal/"]},
+  {"name":"area: harbor","color":"C5DEF5","description":"Harbor integration","paths":["integrations/harbor/"]},
+  {"name":"good first issue","color":"7057FF","description":"Suitable for a new contributor"},
+  {"name":"help wanted","color":"008672","description":"Contributions welcome"},
+  {"name":"autorelease: pending","color":"EDEDED","description":"Release PR awaiting merge"},
+  {"name":"autorelease: tagged","color":"EDEDED","description":"Release has been tagged"}
+]

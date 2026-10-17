@@ -2,11 +2,12 @@
 //! The host chooses schemas and effects; remote annotations never grant authority.
 use super::tools::{ExecutionError, ToolRegistry};
 use crate::{definitions::digest, models::*, Error, Result};
-use futures::{stream::BoxStream, StreamExt};
+use futures::{Stream, StreamExt, TryStream};
 use http::{HeaderName, HeaderValue};
 use rmcp::{
     model::{CallToolRequestParams, ClientJsonRpcMessage, PaginatedRequestParams},
     transport::{
+        common::client_side_sse::BoxedSseResponse,
         streamable_http_client::{
             SseError, StreamableHttpClient, StreamableHttpClientTransportConfig,
             StreamableHttpError, StreamableHttpPostResponse,
@@ -304,6 +305,37 @@ type HttpError = StreamableHttpError<std::io::Error>;
 fn wire_error() -> HttpError {
     StreamableHttpError::Io(std::io::Error::other("MCP transport failed"))
 }
+
+// RMCP still exposes SSE 0.2 types. Parse with 0.3, then move the event fields
+// into the SDK's event type without cloning or serializing the payload again.
+type SdkSse = <BoxedSseResponse as TryStream>::Ok;
+#[expect(
+    clippy::field_reassign_with_default,
+    reason = "the SDK event is an associated type and cannot use a struct literal"
+)]
+fn sdk_sse_stream(
+    stream: impl Stream<Item = std::result::Result<Sse, sse_stream::Error>> + Send + 'static,
+) -> BoxedSseResponse {
+    stream
+        .map(|result| {
+            result
+                .map(|event| {
+                    let mut converted = SdkSse::default();
+                    converted.event = event.event;
+                    converted.data = event.data;
+                    converted.id = event.id;
+                    converted.retry = event.retry;
+                    converted
+                })
+                .map_err(|error| match error {
+                    sse_stream::Error::Body(source) => SseError::Body(source),
+                    sse_stream::Error::Utf8Parse(source) => SseError::Utf8Parse(source),
+                    other => SseError::Body(Box::new(other)),
+                })
+        })
+        .boxed()
+}
+
 impl StreamableHttpClient for BoundedHttp {
     type Error = std::io::Error;
     async fn post_message(
@@ -370,7 +402,7 @@ impl StreamableHttpClient for BoundedHttp {
                 },
             );
             return Ok(StreamableHttpPostResponse::Sse(
-                SseStream::from_bytes_stream(stream).boxed(),
+                sdk_sse_stream(SseStream::from_bytes_stream(stream)),
                 session,
             ));
         }
@@ -417,8 +449,56 @@ impl StreamableHttpClient for BoundedHttp {
         _last_event_id: Option<String>,
         _auth_header: Option<String>,
         _custom_headers: HashMap<HeaderName, HeaderValue>,
-    ) -> std::result::Result<BoxStream<'static, std::result::Result<Sse, SseError>>, HttpError>
-    {
+    ) -> std::result::Result<BoxedSseResponse, HttpError> {
         Err(StreamableHttpError::ServerDoesNotSupportSse)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sse_bridge_preserves_fragmented_events_and_metadata() {
+        let chunks = [
+            &b"event: message\r\ndata: first\r\ndata: caf\xc3"[..],
+            &b"\xa9\r\nid: event-1\r\nretry: 250\r\n\r"[..],
+            &b"\nid:\ndata:\n\n"[..],
+        ];
+        let bytes = futures::stream::iter(chunks.map(Ok::<_, std::io::Error>));
+        let mut events = sdk_sse_stream(SseStream::from_bytes_stream(bytes));
+        let event = events.next().await.unwrap().unwrap();
+        assert_eq!(event.event.as_deref(), Some("message"));
+        assert_eq!(event.data.as_deref(), Some("first\ncaf\u{e9}"));
+        assert_eq!(event.id.as_deref(), Some("event-1"));
+        assert_eq!(event.retry, Some(250));
+        let empty = events.next().await.unwrap().unwrap();
+        assert_eq!(empty.event, None);
+        assert_eq!(empty.data.as_deref(), Some(""));
+        assert_eq!(empty.id.as_deref(), Some(""));
+        assert_eq!(empty.retry, None);
+        assert!(events.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn sse_bridge_preserves_terminal_parse_and_body_errors() {
+        let bytes = futures::stream::iter([Ok::<_, std::io::Error>(&b"data: \xff\n\n"[..])]);
+        let mut events = sdk_sse_stream(SseStream::from_bytes_stream(bytes));
+        assert!(matches!(
+            events.next().await,
+            Some(Err(SseError::Utf8Parse(_)))
+        ));
+        assert!(events.next().await.is_none());
+
+        let bytes = futures::stream::iter([Err::<&[u8], _>(std::io::Error::other(
+            "MCP response limit exceeded",
+        ))]);
+        let mut events = sdk_sse_stream(SseStream::from_bytes_stream(bytes));
+        let Some(Err(SseError::Body(source))) = events.next().await else {
+            panic!("expected the response limit error");
+        };
+        assert_eq!(source.to_string(), "MCP response limit exceeded");
+        assert!(source.downcast_ref::<std::io::Error>().is_some());
+        assert!(events.next().await.is_none());
     }
 }

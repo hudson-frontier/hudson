@@ -217,6 +217,12 @@ fn delegated_runs_inherit_the_root_execution_host() {
         .store
         .validate_schedule(&actor, parent, Some(&target))
         .unwrap();
+    let receipt = runtime.store.inspect_schedule(&actor, parent).unwrap();
+    assert_eq!(receipt.root_run_id, root);
+    assert_eq!(
+        receipt.status,
+        hudson_core::scheduling::ScheduleStatus::Published
+    );
     let stranger = Actor {
         workspace_id: "other-workspace".into(),
         ..actor.clone()
@@ -225,4 +231,94 @@ fn delegated_runs_inherit_the_root_execution_host() {
         .store
         .validate_schedule(&stranger, parent, Some(&target))
         .is_err());
+}
+
+#[test]
+fn receipts_distinguish_publication_from_execution_and_enforce_ownership() {
+    use hudson_core::scheduling::ScheduleStatus;
+    let runtime = fixtures::runtime().unwrap();
+    let actor = fixtures::actor();
+    let input = json!({"order_id":"123","action":"lookup"});
+    let local = runtime
+        .submit(&actor, fixtures::agent_ref(), input.clone(), None)
+        .unwrap();
+    let receipt = runtime.store.inspect_schedule(&actor, local).unwrap();
+    assert_eq!(receipt.status, ScheduleStatus::Unscheduled);
+    assert_eq!(receipt.root_run_id, local);
+    assert_eq!(receipt.last_attempt_at, None);
+    assert_eq!(receipt.published_at, None);
+    let target = ScheduleTarget {
+        scheduler: "temporal:local".into(),
+        task_queue: "private-worker-queue".into(),
+    };
+    let id = runtime
+        .submit_scheduled(
+            &actor,
+            fixtures::agent_ref(),
+            input,
+            None,
+            None,
+            Some(target.clone()),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.store.inspect_schedule(&actor, id).unwrap().status,
+        ScheduleStatus::Pending
+    );
+    runtime
+        .store
+        .record_schedule_attempt(&actor, id, &target)
+        .unwrap();
+    let attempted = runtime.store.inspect_schedule(&actor, id).unwrap();
+    assert!(attempted.last_attempt_at.is_some());
+    assert_eq!(attempted.published_at, None);
+    runtime
+        .store
+        .acknowledge_schedule(&actor, id, &target)
+        .unwrap();
+    let published = runtime.store.inspect_schedule(&actor, id).unwrap();
+    assert_eq!(published.status, ScheduleStatus::Published);
+    assert!(published.published_at.is_some());
+    assert_eq!(
+        runtime.store.inspect(&actor, id).unwrap().status,
+        hudson_core::models::RunStatus::Queued
+    );
+    runtime
+        .store
+        .acknowledge_schedule(&actor, id, &target)
+        .unwrap();
+    assert_eq!(
+        runtime.store.inspect_schedule(&actor, id).unwrap(),
+        published
+    );
+    runtime.cancel(&actor, id).unwrap();
+    assert_eq!(
+        runtime.store.inspect_schedule(&actor, id).unwrap(),
+        published
+    );
+    assert_eq!(
+        runtime.store.inspect(&actor, id).unwrap().status,
+        hudson_core::models::RunStatus::Cancelled
+    );
+    for stranger in [
+        Actor {
+            id: "other".into(),
+            ..actor.clone()
+        },
+        Actor {
+            workspace_id: "other".into(),
+            ..actor.clone()
+        },
+    ] {
+        for run in [local, id] {
+            assert!(runtime.store.inspect_schedule(&stranger, run).is_err());
+        }
+    }
+    assert!(runtime
+        .store
+        .inspect_schedule(&actor, uuid::Uuid::new_v4())
+        .is_err());
+    let encoded = serde_json::to_string(&published).unwrap();
+    assert!(!encoded.contains("private-worker-queue"));
+    assert!(!encoded.contains("temporal:local"));
 }

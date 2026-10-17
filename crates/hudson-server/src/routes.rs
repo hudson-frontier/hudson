@@ -292,6 +292,12 @@ async fn inspect(State(app): State<App>, Path(id): Path<Uuid>) -> Result<Json<Va
     })
     .await
 }
+async fn inspect_schedule(
+    State(app): State<App>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<hudson_core::scheduling::ScheduleView>, ApiError> {
+    blocking(move || Ok(Json(app.store.inspect_schedule(&app.actor, id)?))).await
+}
 async fn children(State(app): State<App>, Path(id): Path<Uuid>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
         Ok(Json(
@@ -463,6 +469,7 @@ fn assemble(
         .route("/runs", post(submit))
         .route("/runs/{id}", get(inspect))
         .route("/runs/{id}/events", get(events))
+        .route("/runs/{id}/schedule", get(inspect_schedule))
         .route("/runs/{id}/children", get(children))
         .route("/runs/{id}/resume", post(resume))
         .route("/runs/{id}/input", post(reply))
@@ -797,6 +804,23 @@ mod tests {
                 .unwrap(),
             vec![parsed]
         );
+        let (status, pending) =
+            request(&app, "GET", &format!("/runs/{id}/schedule"), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            pending,
+            json!({"root_run_id":id,"status":"pending","last_attempt_at":null,"published_at":null})
+        );
+        store
+            .record_schedule_attempt(&actor, parsed, &target)
+            .unwrap();
+        store.acknowledge_schedule(&actor, parsed, &target).unwrap();
+        let (_, published) =
+            request(&app, "GET", &format!("/runs/{id}/schedule"), Value::Null).await;
+        assert_eq!(published["status"], "published");
+        assert!(published["published_at"].is_u64());
+        let (_, queued) = request(&app, "GET", &format!("/runs/{id}"), Value::Null).await;
+        assert_eq!(queued["status"], "queued");
         for action in ["resume", "cancel"] {
             let (status, _) =
                 request(&other, "POST", &format!("/runs/{id}/{action}"), json!({})).await;
@@ -891,6 +915,40 @@ mod tests {
         )
         .await;
         assert_eq!(page, json!([]));
+    }
+
+    #[tokio::test]
+    async fn scheduling_receipts_for_local_and_missing_runs() {
+        let app = router().unwrap();
+        let (_, submitted) = request(
+            &app,
+            "POST",
+            "/runs",
+            json!({"input":{"order_id":"123","action":"lookup"}}),
+        )
+        .await;
+        let id = submitted["run_id"].as_str().unwrap();
+        let (status, receipt) =
+            request(&app, "GET", &format!("/runs/{id}/schedule"), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            receipt,
+            json!({"root_run_id":id,"status":"unscheduled","last_attempt_at":null,"published_at":null})
+        );
+        let (status, _) = request(
+            &app,
+            "GET",
+            &format!("/runs/{}/schedule", Uuid::new_v4()),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, spec) = request(&app, "GET", "/openapi.json", Value::Null).await;
+        let schema =
+            json!({"$ref":"#/components/schemas/ScheduleView","components":spec["components"]});
+        assert!(jsonschema::validator_for(&schema)
+            .unwrap()
+            .is_valid(&receipt));
     }
 
     #[tokio::test]

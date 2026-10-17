@@ -113,6 +113,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scheduling_inspection_requires_a_live_scoped_token() {
+        let store = Store::default();
+        let actor = hudson_core::fixtures::actor();
+        let token = store
+            .issue_api_token(actor.clone(), "schedule-reader".into(), now() + 60_000)
+            .unwrap();
+        let router = protect(
+            crate::routes::router().unwrap(),
+            store.clone(),
+            actor.clone(),
+        );
+        let path = format!("/runs/{}/schedule", uuid::Uuid::new_v4());
+        let send = |bearer: Option<String>| {
+            let router = router.clone();
+            let path = path.clone();
+            async move {
+                let mut builder = Request::builder().uri(path);
+                if let Some(bearer) = bearer {
+                    builder = builder.header(header::AUTHORIZATION, bearer);
+                }
+                router
+                    .oneshot(builder.body(Body::empty()).unwrap())
+                    .await
+                    .unwrap()
+                    .status()
+            }
+        };
+        assert_eq!(send(None).await, StatusCode::UNAUTHORIZED);
+        let bearer = format!("Bearer {}", token.bearer());
+        assert_eq!(send(Some(bearer.clone())).await, StatusCode::NOT_FOUND);
+        store.revoke_api_token(&actor, token.metadata.id).unwrap();
+        assert_eq!(send(Some(bearer)).await, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn authentication_precedes_effects_and_checks_revocation_on_every_request() {
         let store = Store::default();
         let actor = Actor {

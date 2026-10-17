@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hudson-harness", "crates/hudson-core", "crates/hudson-server", "crates/hudson-worker", "crates/hudson-cli", "crates/hudson-temporal"]
+members = ["crates/hudson-harness", "crates/hudson-core", "crates/hudson-server", "crates/hudson-worker", "crates/hudson-cli", "crates/hudson-temporal", "crates/hudson-sandbox-transport"]
 resolver = "2"
 
 [workspace.package]

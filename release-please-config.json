@@ -16,7 +16,7 @@
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(!@.source && (@.name.value=='hudson-harness' || @.name.value=='hudson-core' || @.name.value=='hudson-server' || @.name.value=='hudson-worker' || @.name.value=='hudson-cli' || @.name.value=='hudson-temporal'))].version"
+          "jsonpath": "$.package[?(!@.source && (@.name.value=='hudson-harness' || @.name.value=='hudson-core' || @.name.value=='hudson-server' || @.name.value=='hudson-worker' || @.name.value=='hudson-cli' || @.name.value=='hudson-temporal' || @.name.value=='hudson-sandbox-transport'))].version"
         },
         {
           "type": "toml",

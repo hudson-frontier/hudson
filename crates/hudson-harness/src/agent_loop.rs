@@ -67,8 +67,7 @@ impl Backend for AgentLoop {
         let mut state: State = if checkpoint.step == 0 && checkpoint.payload.is_null() {
             State::default()
         } else {
-            serde_json::from_value(checkpoint.payload.clone())
-                .map_err(|e| invalid(&e.to_string()))?
+            State::deserialize(&checkpoint.payload).map_err(|e| invalid(&e.to_string()))?
         };
         let action = match (&state.phase, input) {
             (Phase::Start, Input::Start { value }) => {
@@ -208,15 +207,15 @@ impl Backend for AgentLoop {
                 "queued messages require a completed input boundary",
             ));
         }
+        let step = checkpoint
+            .step
+            .checked_add(1)
+            .ok_or_else(|| invalid("step overflow"))?;
+        let mut next = checkpoint
+            .with_payload(serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?);
+        next.step = step;
         Ok(Transition {
-            checkpoint: Checkpoint {
-                step: checkpoint
-                    .step
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("step overflow"))?,
-                payload: serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?,
-                ..checkpoint.clone()
-            },
+            checkpoint: next,
             action,
         })
     }
@@ -248,7 +247,7 @@ pub fn history(checkpoint: &Checkpoint) -> Result<context::History, HarnessError
         return Ok(context::History::default());
     }
     let state: State =
-        serde_json::from_value(checkpoint.payload.clone()).map_err(|e| invalid(&e.to_string()))?;
+        State::deserialize(&checkpoint.payload).map_err(|e| invalid(&e.to_string()))?;
     Ok(state.history)
 }
 
@@ -260,10 +259,8 @@ pub fn with_history(
     let mut state: State = if checkpoint.step == 0 && checkpoint.payload.is_null() {
         State::default()
     } else {
-        serde_json::from_value(checkpoint.payload.clone()).map_err(|e| invalid(&e.to_string()))?
+        State::deserialize(&checkpoint.payload).map_err(|e| invalid(&e.to_string()))?
     };
     state.history = history;
-    let mut updated = checkpoint.clone();
-    updated.payload = serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?;
-    Ok(updated)
+    Ok(checkpoint.with_payload(serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?))
 }

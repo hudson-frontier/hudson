@@ -9,6 +9,22 @@ validation. Invalid or oversized bodies do not bind an idempotency key or consum
 an admission intent; callers can correct the body before sending. Validation
 preserves the exact original bytes without retaining a parsed JSON tree.
 
+Reproduce the validation-only comparison with Rust 1.92.0 in release mode:
+
+```sh
+cargo build --release --locked -p hudson-harness --example json_validation
+/usr/bin/time -f 'peak_rss_kib=%M' target/release/examples/json_validation value
+/usr/bin/time -f 'peak_rss_kib=%M' target/release/examples/json_validation ignored
+```
+
+On x86_64 Ubuntu under WSL, three paired runs each validated the same 46,081-byte
+JSON array 1,000 times. The original `Value` parse took 3.062–3.199 seconds
+(median 3.196), with median peak process RSS 3,032 KiB. `IgnoredAny` validation
+took 0.382–0.423 seconds (median 0.398), with median peak process RSS 2,296 KiB.
+Both paths check the same bounded JSON input; only the original allocates and
+drops a complete JSON tree. This measures parsing, not PostgreSQL transactions,
+external execution or end-to-end agent throughput.
+
 The backend already has an authenticated HTTP API and generated Rust client.
 Hudson must reuse that transport rather than invent another guest RPC protocol.
 Create, execute, destroy and cancellation are independent admitted operations.

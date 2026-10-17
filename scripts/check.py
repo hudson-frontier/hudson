@@ -33,6 +33,7 @@ def main():
         subprocess.run(command, cwd=ROOT, env=env, check=True)
 
     run('cargo', 'fmt', '--all', '--', '--check')
+    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_repository.py', '-v')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'examples/project-files', '-v')
     test = ['cargo', 'test', '--locked', '--workspace', '--all-features', '--exclude', 'hudson-temporal']
     if args.database:

@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Data {
+    #[serde(default)]
+    pub sandbox_bindings: BTreeMap<String, crate::sandbox_binding::Binding>,
     #[serde(default, with = "super::pairs")]
     pub customer_registry:
         BTreeMap<(String, String, String, VersionRef), crate::customer::RegistryEntry>,

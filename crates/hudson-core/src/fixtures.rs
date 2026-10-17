@@ -338,3 +338,89 @@ pub fn drive<B: Backend, M: ModelExecutor, T: ToolExecutor>(
     }
     Err(Error::Invalid("fixture driver step ceiling reached".into()))
 }
+
+/// Fresh synthetic admitted Sandbox attempt for protocol tests only.
+/// No real runtime admission, policy enforcement, VM, or existing Store is used.
+/// This feature-gated helper cannot mutate caller-selected durable state.
+pub fn synthetic_sandbox_protocol_fixture() -> Result<(
+    crate::storage::Store,
+    Actor,
+    crate::sandbox_binding::Fence,
+    crate::adapters::sandbox_recovery::PendingOperation,
+)> {
+    use crate::{
+        adapters::sandbox_recovery::{PendingOperation, Step},
+        definitions,
+        sandbox_binding::Fence,
+        storage::Store,
+    };
+    let store = Store::default();
+    let mut runtime = runtime()?;
+    let actor = actor();
+    let run_id = runtime.submit(
+        &actor,
+        agent_ref(),
+        json!({"order_id":"123","action":"lookup"}),
+        None,
+    )?;
+    runtime.tick(&actor, run_id)?;
+    let operation_id = runtime.store.operations(&actor, run_id)?[0].meta.id;
+    let attempt_id = Uuid::new_v4();
+    let mut snapshot = runtime.store.read(|d| Ok(d.clone()))?;
+    let tool = snapshot.tools.values_mut().next().ok_or(Error::NotFound)?;
+    tool.execution = Execution::Sandbox {
+        package: "test-only".into(),
+    };
+    let tool_ref = tool.reference();
+    let name = tool.name.clone();
+    let op = snapshot
+        .operations
+        .get_mut(&operation_id)
+        .ok_or(Error::NotFound)?;
+    op.request = OperationRequest::Tool {
+        tool_ref,
+        call: hudson_harness::ToolCall {
+            call_id: "fixture-call".into(),
+            provider_metadata: serde_json::Value::Null,
+            name,
+            arguments: json!({}),
+        },
+    };
+    op.request_digest =
+        definitions::digest(&(operation_id, run_id, &actor.workspace_id, &op.request))?;
+    snapshot
+        .runs
+        .get_mut(&run_id)
+        .ok_or(Error::NotFound)?
+        .pending_operations = vec![operation_id];
+    op.status = OperationStatus::Running;
+    op.attempts.push(Attempt {
+        token_usage: None,
+        id: attempt_id,
+        number: 1,
+        started_at: 1,
+        finished_at: None,
+        status: OperationStatus::Running,
+        error: None,
+    });
+    // Storage protocol fixture: production Sandbox dispatch still fails closed.
+    store.transact(|d| {
+        *d = snapshot;
+        Ok(())
+    })?;
+    let fence = Fence {
+        run_id,
+        operation_id,
+        attempt_id,
+    };
+    let pending = PendingOperation {
+        run_id: run_id.to_string(),
+        workspace_id: actor.workspace_id.clone(),
+        step: Step::Create,
+        idempotency_key: "stable-create-key-001".into(),
+        sandbox_id: None,
+        operation_id: None,
+        admission_attempted: false,
+    };
+    Ok((store, actor, fence, pending))
+}

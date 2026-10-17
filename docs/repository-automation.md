@@ -117,12 +117,18 @@ history. Versions and changelogs change only through the release PR, which must
 pass the same merge requirements as other changes.
 
 The `simple` strategy plus TOML extra-file updaters preserves inherited
-`version.workspace = true`. It updates `Cargo.toml`, the six local packages in
+`version.workspace = true`. It updates `Cargo.toml`, all workspace packages in
 `Cargo.lock`, the Harbor `pyproject.toml`, and `version.txt` together. Do not use
 the upstream `rust` strategy without checking virtual workspace inheritance.
 The lockfile selector uses `name.value` because Release Please's TOML parser
 wraps scalar values with source positions. Retest the selector when upgrading
 Release Please; repository CI rejects a release PR with inconsistent versions.
+
+When adding a workspace crate, add its name to the Cargo.lock updater's explicit
+allowlist. Repository policy checks that this list matches workspace membership
+and excludes external packages, so a new crate cannot silently miss a release.
+`python3 -m unittest discover -s scripts -p test_repository.py -v` covers omissions
+and accidental inclusion of a dependency.
 
 The bot uses `GITHUB_TOKEN`; no extra secret is needed. GitHub suppresses implicit
 workflow triggers for that token, so the release workflow explicitly dispatches

@@ -257,6 +257,48 @@ struct UserReply {
     input: Value,
     request_key: String,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueueInput {
+    kind: hudson_core::inbox::MessageKind,
+    input: Value,
+    request_key: String,
+}
+async fn queue_input(
+    State(app): State<App>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<QueueInput>,
+) -> Result<Json<hudson_core::inbox::MessageReceipt>, ApiError> {
+    blocking(move || {
+        app.validate_binding(id)?;
+        Ok(Json(app.store.enqueue_message(
+            &app.actor,
+            id,
+            body.kind,
+            body.input,
+            &body.request_key,
+        )?))
+    })
+    .await
+}
+async fn queued_input(
+    State(app): State<App>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<hudson_core::inbox::QueuedMessage>>, ApiError> {
+    blocking(move || Ok(Json(app.store.queued_messages(&app.actor, id)?))).await
+}
+async fn clear_queue(
+    State(app): State<App>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    blocking(move || {
+        app.validate_binding(id)?;
+        Ok(Json(
+            json!({"cleared":app.store.clear_queued_messages(&app.actor, id)?}),
+        ))
+    })
+    .await
+}
 async fn reply(
     State(app): State<App>,
     Path(id): Path<Uuid>,
@@ -473,6 +515,10 @@ fn assemble(
         .route("/runs/{id}/children", get(children))
         .route("/runs/{id}/resume", post(resume))
         .route("/runs/{id}/input", post(reply))
+        .route(
+            "/runs/{id}/messages",
+            get(queued_input).post(queue_input).delete(clear_queue),
+        )
         .route("/runs/{id}/cancel", post(cancel))
         .route("/operations/{id}", get(inspect_operation))
         .route("/operations/{id}/approval", post(approve));
@@ -797,6 +843,27 @@ mod tests {
         let (_, view) = request(&app, "GET", &format!("/runs/{id}"), Value::Null).await;
         assert_eq!(view["status"], "queued");
         let parsed = Uuid::parse_str(id).unwrap();
+        let queued =
+            json!({"kind":"steer","input":"use the latest data","request_key":"steering-1"});
+        let message_path = format!("/runs/{id}/messages");
+        let (status, message) = request(&app, "POST", &message_path, queued.clone()).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, repeated) = request(&app, "POST", &message_path, queued).await;
+        assert_eq!(message, repeated);
+        let (_, pending) = request(&app, "GET", &message_path, Value::Null).await;
+        assert_eq!(pending.as_array().unwrap().len(), 1);
+        let (status, _) = request(
+            &other,
+            "POST",
+            &message_path,
+            json!({"kind":"steer","input":"wrong queue","request_key":"wrong"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (_, cleared) = request(&app, "DELETE", &message_path, Value::Null).await;
+        assert_eq!(cleared, json!({"cleared":1}));
+        let (_, pending) = request(&app, "GET", &message_path, Value::Null).await;
+        assert_eq!(pending, json!([]));
         assert!(store.operations(&actor, parsed).unwrap().is_empty());
         assert_eq!(
             store

@@ -24,6 +24,7 @@ crates/
     verification.rs    output/goal contracts and repair feedback
     recovery.rs        interrupted-attempt fencing and receipt reconciliation
     sandbox_binding.rs owned request bytes, mutation keys, attempt and receipt fences
+    inbox.rs           actor-scoped steering/follow-ups, receipts and atomic consumption
     skills.rs          immutable instruction catalogs and Markdown loading
     subagents.rs       delegate, join, persisted lineage
     evaluation.rs      ordinary-runtime regression cases and reports

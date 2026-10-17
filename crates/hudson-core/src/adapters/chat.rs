@@ -11,12 +11,23 @@ pub struct ChatModel {
     max_output_tokens: u32,
     legacy_token_limit: bool,
     last_usage: Option<crate::models::TokenUsage>,
+    reasoning: Option<super::reasoning::Reasoning>,
 }
 fn failed(message: &str) -> ExecutionError {
     ExecutionError::Failed(message.into())
 }
 
 impl ChatModel {
+    pub fn with_reasoning(
+        mut self,
+        reasoning: Option<super::reasoning::Reasoning>,
+    ) -> crate::Result<Self> {
+        if let Some(reasoning) = &reasoning {
+            reasoning.validate("openai", self.max_output_tokens)?;
+        }
+        self.reasoning = reasoning;
+        Ok(self)
+    }
     /// Compatibility mode for servers accepting max_tokens instead of max_completion_tokens.
     pub fn with_legacy_token_limit(mut self, enabled: bool) -> Self {
         self.legacy_token_limit = enabled;
@@ -56,6 +67,7 @@ impl ChatModel {
             max_output_tokens,
             legacy_token_limit: false,
             last_usage: None,
+            reasoning: None,
         })
     }
 }
@@ -74,6 +86,9 @@ impl ModelExecutor for ChatModel {
                 .remove("max_completion_tokens")
                 .expect("token limit");
             body["max_tokens"] = limit;
+        }
+        if let Some(reasoning) = &self.reasoning {
+            reasoning.apply(&mut body, false);
         }
         decode(self.post_json(&body, false)?)
     }

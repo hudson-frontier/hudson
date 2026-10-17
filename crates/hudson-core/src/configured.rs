@@ -39,6 +39,8 @@ struct Definition {
     max_output_tokens: u32,
     #[serde(default)]
     legacy_token_limit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reasoning: Option<crate::adapters::reasoning::Reasoning>,
     #[serde(default = "version")]
     version: u32,
     #[serde(default)]
@@ -341,6 +343,10 @@ fn build(
         definition.max_output_tokens,
         definition.legacy_token_limit,
     ))?;
+    let transport_fingerprint = match &definition.reasoning {
+        Some(reasoning) => crate::definitions::digest(&(&transport_fingerprint, reasoning))?,
+        None => transport_fingerprint,
+    };
     let model: Box<dyn ModelExecutor> = match definition.provider.as_str() {
         "" | "openai" => {
             let key = credential(
@@ -352,7 +358,8 @@ fn build(
             )?;
             Box::new(
                 ChatModel::new(&definition.endpoint, key, definition.max_output_tokens)?
-                    .with_legacy_token_limit(definition.legacy_token_limit),
+                    .with_legacy_token_limit(definition.legacy_token_limit)
+                    .with_reasoning(definition.reasoning.clone())?,
             )
         }
         "anthropic" => {
@@ -368,7 +375,10 @@ fn build(
                     .unwrap_or("ANTHROPIC_API_KEY"),
                 definition.api_key_env.is_some() || url == "https://api.anthropic.com/v1/messages",
             )?;
-            Box::new(AnthropicModel::new(url, key, definition.max_output_tokens)?)
+            Box::new(
+                AnthropicModel::new(url, key, definition.max_output_tokens)?
+                    .with_reasoning(definition.reasoning.clone())?,
+            )
         }
         "gemini" | "ollama" => {
             let default_url = if definition.provider == "gemini" {
@@ -396,7 +406,8 @@ fn build(
                 .flatten();
             Box::new(
                 ChatModel::new(url, key, definition.max_output_tokens)?
-                    .with_legacy_token_limit(true),
+                    .with_legacy_token_limit(true)
+                    .with_reasoning(definition.reasoning.clone())?,
             )
         }
         _ => return Err("unsupported provider".into()),
@@ -712,9 +723,18 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
     }
     if let Some(context) = &definition.context {
         context.validate()?;
+        if context.reserve_bytes >= definition.limits.max_context_bytes {
+            return Err("context reserve must be smaller than the context limit".into());
+        }
     }
     if definition.max_output_tokens == 0 {
         return Err("max_output_tokens must be positive".into());
+    }
+    if let Some(reasoning) = &definition.reasoning {
+        if definition.model.is_none() {
+            return Err("reasoning requires an explicitly configured compatible model".into());
+        }
+        reasoning.validate(&definition.provider, definition.max_output_tokens)?;
     }
     if let Some(schema) = &definition.input_schema {
         crate::definitions::validate_schema(schema)?;
@@ -963,6 +983,50 @@ mod tests {
     use super::*;
     fn definition(name: &str) -> Definition {
         serde_json::from_value(serde_json::json!({"name":name,"instructions":"help"})).unwrap()
+    }
+    #[test]
+    fn reasoning_is_validated_and_pinned_without_changing_default_bindings() {
+        use crate::adapters::reasoning::{Effort, Reasoning};
+        let mut value = definition("reasoning-root");
+        value.model = Some("fixture-model".into());
+        value.endpoint = "http://127.0.0.1:1/model".into();
+        let old_fingerprint = crate::definitions::digest(&(
+            &value.provider,
+            &value.endpoint,
+            value.max_output_tokens,
+            value.legacy_token_limit,
+        ))
+        .unwrap();
+        let store = Store::default();
+        let actor = Actor {
+            workspace_id: "reasoning".into(),
+            id: "operator".into(),
+        };
+        let tree = Configuration(value.clone())
+            .build_admission_tree(store.clone(), &actor)
+            .unwrap();
+        let actual = store
+            .read(|data| {
+                Ok(
+                    data.model_bindings[&(actor.workspace_id.clone(), tree.reference.clone())]
+                        .clone(),
+                )
+            })
+            .unwrap();
+        assert_eq!(actual, old_fingerprint);
+        value.reasoning = Some(Reasoning::Effort {
+            effort: Effort::Low,
+        });
+        assert!(Configuration(value.clone())
+            .build_admission_tree(store.clone(), &actor)
+            .is_err());
+        value.version += 1;
+        Configuration(value.clone())
+            .build_admission_tree(store, &actor)
+            .unwrap();
+        value.provider = "gemini".into();
+        value.reasoning = Some(Reasoning::Budget { tokens: 1024 });
+        assert!(validate_contracts(&value).is_err());
     }
     #[test]
     fn admission_preserves_worker_definitions_without_loading_secrets_or_executors() {

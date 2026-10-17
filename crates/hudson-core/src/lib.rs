@@ -45,6 +45,7 @@ pub mod configured;
 pub mod evaluation;
 
 pub mod context;
+pub mod inbox;
 pub mod memory;
 
 pub mod coordination;

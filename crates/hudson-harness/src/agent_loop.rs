@@ -7,6 +7,9 @@ use std::collections::BTreeSet;
 #[derive(Default)]
 pub struct AgentLoop;
 
+pub(crate) const VERIFICATION_FEEDBACK_PREFIX: &str =
+    "The output did not pass verification. Correct it using this feedback: ";
+
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     #[serde(flatten)]
@@ -50,11 +53,21 @@ impl Backend for AgentLoop {
         checkpoint: &Checkpoint,
         input: Input,
     ) -> Result<Transition, HarnessError> {
+        let (input, mut queued) = match input {
+            Input::Queued { input, messages }
+                if !messages.is_empty()
+                    && messages.len() <= 16
+                    && !matches!(*input, Input::Queued { .. }) =>
+            {
+                (*input, messages)
+            }
+            Input::Queued { .. } => return Err(invalid("invalid queued input boundary")),
+            input => (input, Vec::new()),
+        };
         let mut state: State = if checkpoint.step == 0 && checkpoint.payload.is_null() {
             State::default()
         } else {
-            serde_json::from_value(checkpoint.payload.clone())
-                .map_err(|e| invalid(&e.to_string()))?
+            State::deserialize(&checkpoint.payload).map_err(|e| invalid(&e.to_string()))?
         };
         let action = match (&state.phase, input) {
             (Phase::Start, Input::Start { value }) => {
@@ -62,7 +75,7 @@ impl Backend for AgentLoop {
                     role: Role::User,
                     content: vec![Content::Json { value }],
                 });
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             (
                 Phase::Model,
@@ -124,7 +137,7 @@ impl Backend for AgentLoop {
                         },
                     }],
                 });
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             (Phase::Tools { calls }, Input::Tools { results }) => {
                 let expected: BTreeSet<_> = calls.iter().map(|c| &c.call_id).collect();
@@ -144,7 +157,7 @@ impl Backend for AgentLoop {
                         content: vec![Content::ToolResult { result }],
                     });
                 }
-                request(config, &mut state)?
+                request(config, &mut state, &mut queued)?
             }
             (
                 Phase::Model,
@@ -165,8 +178,12 @@ impl Backend for AgentLoop {
             }
             (Phase::Verification { candidate }, Input::Verification { passed: true, .. }) => {
                 let output = candidate.clone();
-                state.phase = Phase::Done;
-                Action::Complete { output }
+                if queued.is_empty() {
+                    state.phase = Phase::Done;
+                    Action::Complete { output }
+                } else {
+                    request(config, &mut state, &mut queued)?
+                }
             }
             (
                 Phase::Verification { .. },
@@ -175,26 +192,47 @@ impl Backend for AgentLoop {
                     feedback,
                 },
             ) => {
-                state.history.messages.push(Message { role: Role::User, content: vec![Content::Text { text: format!("The output did not pass verification. Correct it using this feedback: {feedback}") }] });
-                request(config, &mut state)?
+                state.history.messages.push(Message {
+                    role: Role::User,
+                    content: vec![Content::Text {
+                        text: format!("{VERIFICATION_FEEDBACK_PREFIX}{feedback}"),
+                    }],
+                });
+                request(config, &mut state, &mut queued)?
             }
             _ => return Err(invalid("input does not match the pending loop action")),
         };
+        if !queued.is_empty() {
+            return Err(invalid(
+                "queued messages require a completed input boundary",
+            ));
+        }
+        let step = checkpoint
+            .step
+            .checked_add(1)
+            .ok_or_else(|| invalid("step overflow"))?;
+        let mut next = checkpoint
+            .with_payload(serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?);
+        next.step = step;
         Ok(Transition {
-            checkpoint: Checkpoint {
-                step: checkpoint
-                    .step
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("step overflow"))?,
-                payload: serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?,
-                ..checkpoint.clone()
-            },
+            checkpoint: next,
             action,
         })
     }
 }
 
-fn request(config: &Config, state: &mut State) -> Result<Action, HarnessError> {
+fn request(
+    config: &Config,
+    state: &mut State,
+    queued: &mut Vec<Value>,
+) -> Result<Action, HarnessError> {
+    state
+        .history
+        .messages
+        .extend(queued.drain(..).map(|value| Message {
+            role: Role::User,
+            content: vec![Content::Json { value }],
+        }));
     let request = context::build(config, state.history.model_messages())?;
     state.phase = Phase::Model;
     Ok(Action::CallModel { request })
@@ -209,7 +247,7 @@ pub fn history(checkpoint: &Checkpoint) -> Result<context::History, HarnessError
         return Ok(context::History::default());
     }
     let state: State =
-        serde_json::from_value(checkpoint.payload.clone()).map_err(|e| invalid(&e.to_string()))?;
+        State::deserialize(&checkpoint.payload).map_err(|e| invalid(&e.to_string()))?;
     Ok(state.history)
 }
 
@@ -221,10 +259,8 @@ pub fn with_history(
     let mut state: State = if checkpoint.step == 0 && checkpoint.payload.is_null() {
         State::default()
     } else {
-        serde_json::from_value(checkpoint.payload.clone()).map_err(|e| invalid(&e.to_string()))?
+        State::deserialize(&checkpoint.payload).map_err(|e| invalid(&e.to_string()))?
     };
     state.history = history;
-    let mut updated = checkpoint.clone();
-    updated.payload = serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?;
-    Ok(updated)
+    Ok(checkpoint.with_payload(serde_json::to_value(state).map_err(|e| invalid(&e.to_string()))?))
 }

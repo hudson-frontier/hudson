@@ -68,3 +68,125 @@ fn mismatched_results_never_become_a_compaction_boundary() {
     history.messages.push(result("different"));
     assert_eq!(history.oldest_complete_exchange(), None);
 }
+
+#[test]
+fn newest_user_direction_survives_archiving_of_later_exchanges() {
+    let user = |text: &str| Message {
+        role: Role::User,
+        content: vec![Content::Text { text: text.into() }],
+    };
+    let answer = Message {
+        role: Role::Assistant,
+        content: vec![Content::Json {
+            value: json!("answer"),
+        }],
+    };
+    let mut history = History {
+        messages: vec![
+            user("original"),
+            user("old direction"),
+            answer.clone(),
+            user("current direction"),
+            answer,
+        ],
+        archive: None,
+    };
+    assert_eq!(history.complete_exchanges(), vec![1..2, 2..3, 4..5]);
+    while let Some(range) = history.oldest_complete_exchange() {
+        history.messages.drain(range);
+    }
+    assert_eq!(
+        history.messages,
+        vec![user("original"), user("current direction")]
+    );
+}
+
+#[test]
+fn duplicate_call_ids_cannot_form_an_archive_boundary() {
+    let call = Content::ToolCall {
+        call: ToolCall {
+            call_id: "same".into(),
+            name: "read".into(),
+            arguments: json!({}),
+            provider_metadata: json!(null),
+        },
+    };
+    let history = History {
+        messages: vec![
+            Message {
+                role: Role::User,
+                content: vec![],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![call.clone(), call],
+            },
+            result("same"),
+        ],
+        archive: None,
+    };
+    assert!(history.oldest_complete_exchange().is_none());
+    assert!(history.complete_exchanges().is_empty());
+}
+
+#[test]
+fn repair_feedback_does_not_replace_the_latest_real_user_direction() {
+    use hudson_harness::{agent_loop, AgentLoop, Config, Engine, Input, ModelResponse};
+    let engine = Engine::new(AgentLoop);
+    let config = Config {
+        instructions: "finish".into(),
+        model: "fixture".into(),
+        tools: vec![],
+        allow_user_input: false,
+        max_context_bytes: 16_384,
+    };
+    let mut checkpoint = engine
+        .advance(
+            &config,
+            &engine.initial_state(),
+            Input::Queued {
+                input: Box::new(Input::Start {
+                    value: json!("original"),
+                }),
+                messages: vec![json!("Use the current report")],
+            },
+        )
+        .unwrap()
+        .checkpoint;
+    for _ in 0..2 {
+        checkpoint = engine
+            .advance(
+                &config,
+                &checkpoint,
+                Input::Model {
+                    response: ModelResponse::Final {
+                        output: json!("invalid answer"),
+                    },
+                },
+            )
+            .unwrap()
+            .checkpoint;
+        checkpoint = engine
+            .advance(
+                &config,
+                &checkpoint,
+                Input::Verification {
+                    passed: false,
+                    feedback: "correct the output".into(),
+                },
+            )
+            .unwrap()
+            .checkpoint;
+    }
+    let mut history = agent_loop::history(&checkpoint).unwrap();
+    while let Some(range) = history.oldest_complete_exchange() {
+        history.messages.drain(range);
+    }
+    assert_eq!(history.messages.len(), 2);
+    assert_eq!(
+        history.messages[1].content,
+        vec![Content::Json {
+            value: json!("Use the current report")
+        }]
+    );
+}

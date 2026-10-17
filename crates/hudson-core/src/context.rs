@@ -1,4 +1,6 @@
 //! Bounded context with immutable, run-scoped source artifacts. No hidden model calls.
+#[cfg(test)]
+mod tests;
 use crate::{
     adapters::tools::{ExecutionError, ToolRegistry},
     definitions::digest,
@@ -17,6 +19,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ContextPolicy {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub reserve_bytes: usize,
     pub offload_bytes: usize,
     pub recent_exchanges: usize,
     pub excerpt_bytes: usize,
@@ -25,6 +29,7 @@ pub struct ContextPolicy {
 impl Default for ContextPolicy {
     fn default() -> Self {
         Self {
+            reserve_bytes: 0,
             offload_bytes: 8192,
             recent_exchanges: 2,
             excerpt_bytes: 1024,
@@ -34,7 +39,8 @@ impl Default for ContextPolicy {
 }
 impl ContextPolicy {
     pub fn validate(&self) -> Result<()> {
-        if !(4096..=1048576).contains(&self.offload_bytes)
+        if self.reserve_bytes > 65_536
+            || !(4096..=1048576).contains(&self.offload_bytes)
             || !(1..=32).contains(&self.recent_exchanges)
             || !(128..=4096).contains(&self.excerpt_bytes)
             || self.excerpt_bytes > self.offload_bytes / 4
@@ -46,6 +52,10 @@ impl ContextPolicy {
         }
         Ok(())
     }
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -116,6 +126,13 @@ pub(crate) fn advance<B: Backend>(
         });
     };
     policy.validate()?;
+    let target = config
+        .max_context_bytes
+        .checked_sub(policy.reserve_bytes)
+        .filter(|target| *target > 0)
+        .ok_or_else(|| {
+            Error::Invalid("context reserve must be smaller than the context limit".into())
+        })?;
     let mut history = agent_loop::history(checkpoint)?;
     let mut artifacts = vec![];
     for message in &mut history.messages {
@@ -127,36 +144,43 @@ pub(crate) fn advance<B: Backend>(
             }
         }
     }
-    if let Input::Tools { results } = &mut input {
+    let effective_input = match &mut input {
+        Input::Queued { input, .. } => input.as_mut(),
+        input => input,
+    };
+    if let Input::Tools { results } = effective_input {
         for result in results {
             if let ToolOutcome::Success { value } = &mut result.outcome {
                 offload(value, &mut artifacts, workspace, run, policy, "tool_output")?;
             }
         }
     }
+    let mut complete = history.complete_exchanges().len();
     loop {
         let updated = agent_loop::with_history(checkpoint, history.clone())?;
-        match engine.advance(config, &updated, input.clone()) {
+        let fitting = match engine.advance(config, &updated, input.clone()) {
             Ok(transition)
                 if serde_json::to_vec(&transition.checkpoint)?.len()
                     <= config.max_context_bytes
                     && serde_json::to_vec(&transition.action)?.len()
                         <= config.max_context_bytes =>
             {
+                Some(transition)
+            }
+            Ok(_) | Err(HarnessError::ContextLimit) => None,
+            Err(e) => return Err(e.into()),
+        };
+        if let Some(transition) = fitting {
+            if policy.reserve_bytes == 0
+                || complete <= policy.recent_exchanges
+                || (serde_json::to_vec(&transition.checkpoint)?.len() <= target
+                    && serde_json::to_vec(&transition.action)?.len() <= target)
+            {
                 return Ok(Prepared {
                     transition,
                     artifacts,
-                })
+                });
             }
-            Ok(_) | Err(HarnessError::ContextLimit) => {}
-            Err(e) => return Err(e.into()),
-        }
-        // Count complete exchanges and keep the most recent configured number.
-        let mut probe = history.clone();
-        let mut complete = 0;
-        while let Some(range) = probe.oldest_complete_exchange() {
-            probe.messages.drain(range);
-            complete += 1;
         }
         if complete <= policy.recent_exchanges {
             return Err(HarnessError::ContextLimit.into());
@@ -165,6 +189,7 @@ pub(crate) fn advance<B: Backend>(
             .oldest_complete_exchange()
             .ok_or(HarnessError::ContextLimit)?;
         let archived: Vec<Message> = history.messages.drain(range).collect();
+        complete -= 1;
         let excerpt = extract(&archived, policy.excerpt_bytes)?;
         let previous = history
             .archive
@@ -247,6 +272,9 @@ impl MemoryStore {
             .transpose()?;
         self.transact(|data| {
             let definition = data.agents.get(&(workspace.to_owned(), agent.clone())).ok_or(Error::NotFound)?;
+            if policy.is_some_and(|policy| policy.reserve_bytes >= definition.limits.max_context_bytes) {
+                return Err(Error::Invalid("context reserve must be smaller than the context limit".into()));
+            }
             if policy.is_some() && !definition.tools.iter().any(|tool| tool.alias == "read_context_artifact" && data.tools.get(&(workspace.to_owned(), tool.tool_ref.clone())).is_some_and(|tool| matches!(&tool.execution, Execution::Registered { key } if Some(key) == expected_reader.as_ref()))) {
                 return Err(Error::Invalid("context management requires its registered archive reader".into()));
             }

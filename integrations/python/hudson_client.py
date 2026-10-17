@@ -204,6 +204,19 @@ class HudsonClient:
     def resume(self, run_id):
         return self._request('POST', f'/runs/{_id(run_id)}/resume')
 
+    def queue_message(self, run_id, input, *, kind, request_key):
+        """Queue steering or a follow-up; this does not approve, reply, or resume."""
+        if kind not in ('steer', 'follow_up'):
+            raise ValueError('message kind must be steer or follow_up')
+        return self._request('POST', f'/runs/{_id(run_id)}/messages', {
+            'kind': kind, 'input': input, 'request_key': _key(request_key)})
+
+    def queued_messages(self, run_id):
+        return self._request('GET', f'/runs/{_id(run_id)}/messages')
+
+    def clear_queued_messages(self, run_id):
+        return self._request('DELETE', f'/runs/{_id(run_id)}/messages')
+
     def cancel(self, run_id):
         return self._request('POST', f'/runs/{_id(run_id)}/cancel')
 

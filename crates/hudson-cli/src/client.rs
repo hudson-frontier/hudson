@@ -86,6 +86,14 @@ pub fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let body = submission(start)?;
             client.post(format!("{base}/runs")).json(&body).send()?
         }
+        Command::Steer(message) => enqueue(&client, base, message, "steer")?,
+        Command::FollowUp(message) => enqueue(&client, base, message, "follow_up")?,
+        Command::Inbox { run_id } => client
+            .get(format!("{base}/runs/{}/messages", segment(&run_id)?))
+            .send()?,
+        Command::ClearInbox { run_id } => client
+            .delete(format!("{base}/runs/{}/messages", segment(&run_id)?))
+            .send()?,
         Command::Reply {
             run_id,
             question_id,
@@ -135,6 +143,25 @@ pub fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("Hudson returned {status}").into());
     }
     Ok(())
+}
+
+fn enqueue(
+    client: &reqwest::blocking::Client,
+    base: &str,
+    message: crate::commands::QueuedInput,
+    kind: &str,
+) -> Result<reqwest::blocking::Response, Box<dyn std::error::Error>> {
+    let body = json!({"kind":kind,"input":message.text,"request_key":message.request_key});
+    if serde_json::to_vec(&body)?.len() > 64 * 1024 {
+        return Err("queued message exceeds 64 KiB".into());
+    }
+    Ok(client
+        .post(format!(
+            "{base}/runs/{}/messages",
+            segment(&message.run_id)?
+        ))
+        .json(&body)
+        .send()?)
 }
 
 fn submission(start: Start) -> Result<Value, Box<dyn std::error::Error>> {

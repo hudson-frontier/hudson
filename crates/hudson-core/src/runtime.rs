@@ -211,7 +211,13 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             return self.store.inspect(actor, id);
         };
         if run.state.step >= run.limits.max_harness_steps {
-            self.fail(actor, id, run.revision, "harness step budget exhausted")?;
+            self.fail(
+                actor,
+                id,
+                run.revision,
+                "harness step budget exhausted",
+                None,
+            )?;
             return self.store.inspect(actor, id);
         }
         let (config, dependency_artifacts) = self.store.read(|d| {
@@ -234,24 +240,27 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 crate::coordination::append_dependency_context(d, id, &mut config.instructions)?;
             Ok((config, artifacts))
         })?;
-        let context_policy = self.store.read(|d| {
-            Ok(d.context_policies
+        let (context_policy, queued, queued_input) = self.store.read(|d| {
+            let policy = d
+                .context_policies
                 .get(&(actor.workspace_id.clone(), run.agent_ref.clone()))
                 .cloned()
-                .flatten())
+                .flatten();
+            let (queued, input) = crate::inbox::prepare(d, id, input.clone());
+            Ok((policy, queued, input))
         })?;
         let prepared = match crate::context::advance(
             &self.engine,
             &config,
             &run.state,
-            input.clone(),
+            queued_input,
             context_policy.as_ref(),
             &actor.workspace_id,
             id,
         ) {
             Ok(t) => t,
             Err(e) => {
-                self.fail(actor, id, run.revision, &e.to_string())?;
+                self.fail(actor, id, run.revision, &e.to_string(), Some(&queued))?;
                 return self.store.inspect(actor, id);
             }
         };
@@ -259,6 +268,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         let committed = self.store.transact(|d| {
             let mut current = d.run(actor, id)?.clone();
             if current.revision != run.revision { return Err(Error::Conflict("stale run revision".into())); }
+            if !crate::inbox::unchanged(d, id, &queued) { return Ok(false); }
             crate::context::commit(d, &prepared.artifacts)?;
             crate::context::commit(d, &dependency_artifacts)?;
             bounded(&transition.checkpoint, current.limits.max_context_bytes)?;
@@ -337,6 +347,8 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                     approval: None, attempts: vec![], result: None, revision: 0 });
             }
             let status = current.status;
+            crate::inbox::consume(d, id, &queued);
+            if status.terminal() { crate::inbox::discard(d, id); }
             crate::memory::retain_completed(d, &current)?;
             d.runs.insert(id, current);
             for operation in new_operations {
@@ -349,13 +361,16 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             } else if status == RunStatus::Waiting {
                 d.event(id, None, EventType::RunWaiting, None, json!({}));
             }
-            Ok(())
+            Ok(true)
         });
+        if matches!(committed, Ok(false)) {
+            return self.store.inspect(actor, id);
+        }
         if let Err(error) = committed {
             if matches!(error, Error::Conflict(_)) {
                 return Err(error);
             }
-            self.fail(actor, id, run.revision, &error.to_string())?;
+            self.fail(actor, id, run.revision, &error.to_string(), Some(&queued))?;
         }
         self.store.inspect(actor, id)
     }
@@ -458,6 +473,9 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             }
             run.revision += 1;
             let status = run.status;
+            if status == RunStatus::Failed {
+                crate::inbox::discard(d, id);
+            }
             d.runs.insert(id, run);
             if status == RunStatus::Failed {
                 d.event(
@@ -472,16 +490,29 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         })
     }
 
-    fn fail(&self, actor: &Actor, id: Uuid, revision: u64, reason: &str) -> Result<()> {
+    fn fail(
+        &self,
+        actor: &Actor,
+        id: Uuid,
+        revision: u64,
+        reason: &str,
+        queue: Option<&crate::inbox::Prepared>,
+    ) -> Result<()> {
         self.store.transact(|d| {
             let run = d.run(actor, id)?;
             if run.revision != revision {
                 return Err(Error::Conflict("stale run revision".into()));
             }
+            // A withdrawal can make a failed preparation valid again. Fence
+            // failure with the same queue snapshot as a successful transition.
+            if queue.is_some_and(|expected| !crate::inbox::unchanged(d, id, expected)) {
+                return Ok(());
+            }
             let run = d.runs.get_mut(&id).expect("checked");
             run.status = RunStatus::Failed;
             run.reason = Some(reason.into());
             run.revision += 1;
+            crate::inbox::discard(d, id);
             d.event(
                 id,
                 None,
@@ -655,6 +686,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 run.status = RunStatus::Cancelling;
                 run.next_input = None;
                 run.revision += 1;
+                crate::inbox::discard(d, *id);
                 d.event(
                     *id,
                     None,

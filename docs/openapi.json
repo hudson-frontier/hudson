@@ -802,6 +802,151 @@
           }
         ]
       }
+    },
+    "/runs/{id}/messages": {
+      "post": {
+        "operationId": "queueRunInput",
+        "summary": "Queue steering or a verified-answer follow-up without executing",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueInput"
+              }
+            }
+          }
+        },
+        "description": "Messages and keys are scoped to the actor-owned run. Steering takes priority and one message is consumed per complete boundary. Follow-ups wait for a verified answer. Limits: 16 pending messages, 64 KiB including queue metadata, and 128 lifetime keys per run. Queue controls do not approve tools, answer saved questions, reconcile uncertainty, or resume execution. Exact replay remains valid after consumption or withdrawal."
+      },
+      "get": {
+        "operationId": "getQueuedRunInput",
+        "summary": "Inspect pending messages without consuming them",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/components/schemas/QueuedMessage"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "description": "Messages and keys are scoped to the actor-owned run. Steering takes priority and one message is consumed per complete boundary. Follow-ups wait for a verified answer. Limits: 16 pending messages, 64 KiB including queue metadata, and 128 lifetime keys per run. Queue controls do not approve tools, answer saved questions, reconcile uncertainty, or resume execution. Exact replay remains valid after consumption or withdrawal."
+      },
+      "delete": {
+        "operationId": "clearQueuedRunInput",
+        "summary": "Withdraw pending messages while preserving replay receipts",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClearedMessages"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "description": "Messages and keys are scoped to the actor-owned run. Steering takes priority and one message is consumed per complete boundary. Follow-ups wait for a verified answer. Limits: 16 pending messages, 64 KiB including queue metadata, and 128 lifetime keys per run. Queue controls do not approve tools, answer saved questions, reconcile uncertainty, or resume execution. Exact replay remains valid after consumption or withdrawal."
+      }
     }
   },
   "components": {
@@ -1377,7 +1522,10 @@
               "run_resumed",
               "cancellation_requested",
               "run_finished",
-              "assessment_recorded"
+              "assessment_recorded",
+              "input_queued",
+              "input_consumed",
+              "input_queue_cleared"
             ]
           },
           "actor_id": {
@@ -1956,6 +2104,79 @@
             "description": "Original acknowledgment timestamp; absent in legacy snapshots."
           }
         }
+      },
+      "MessageReceipt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "steer",
+              "follow_up"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "QueuedMessage": {
+        "type": "object",
+        "properties": {
+          "receipt": {
+            "$ref": "#/components/schemas/MessageReceipt"
+          },
+          "value": {}
+        },
+        "required": [
+          "receipt",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "QueueInput": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "steer",
+              "follow_up"
+            ]
+          },
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "kind",
+          "input",
+          "request_key"
+        ],
+        "additionalProperties": false
+      },
+      "ClearedMessages": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

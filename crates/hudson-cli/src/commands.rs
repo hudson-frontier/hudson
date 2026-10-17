@@ -34,6 +34,18 @@ pub enum Command {
         version: u32,
     },
     Start(Start),
+    /// Queue new direction at the next complete model/tool boundary.
+    Steer(QueuedInput),
+    /// Queue work after the current answer passes verification.
+    FollowUp(QueuedInput),
+    /// Inspect pending messages without consuming them.
+    Inbox {
+        run_id: String,
+    },
+    /// Withdraw pending messages; their idempotency receipts remain valid.
+    ClearInbox {
+        run_id: String,
+    },
     /// Answer a waiting agent; reuse the key when retrying the same reply.
     Reply {
         run_id: String,
@@ -84,6 +96,15 @@ pub enum Command {
     Cancel {
         run_id: String,
     },
+}
+
+#[derive(clap::Args)]
+pub struct QueuedInput {
+    pub run_id: String,
+    #[arg(long)]
+    pub text: String,
+    #[arg(long)]
+    pub request_key: String,
 }
 
 #[derive(clap::Args)]

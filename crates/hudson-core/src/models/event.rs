@@ -8,6 +8,9 @@ use uuid::Uuid;
 pub enum EventType {
     RunCreated,
     InputReceived,
+    InputQueued,
+    InputConsumed,
+    InputQueueCleared,
     OperationRequested,
     ApprovalRequested,
     ApprovalDecided,

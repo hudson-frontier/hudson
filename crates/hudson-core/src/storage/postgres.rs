@@ -53,7 +53,7 @@ impl MemoryStore {
 }
 fn decode(row: postgres::Row) -> Result<Data> {
     let version: i32 = row.try_get(0).map_err(database_error)?;
-    if version != 1 {
+    if !matches!(version, 1 | 2) {
         return Err(Error::Unsupported("unknown PostgreSQL state schema".into()));
     }
     let value: serde_json::Value = row.try_get(1).map_err(database_error)?;
@@ -81,13 +81,18 @@ impl Postgres {
                 &[&self.namespace],
             )
             .map_err(database_error)?;
+        let previous_version: i32 = row.try_get(0).map_err(database_error)?;
         let mut data = decode(row)?;
         let output = f(&mut data)?;
+        // Legacy writers accept only version 1 and would discard unknown inbox
+        // fields. Promotion is atomic with the first accepted message and sticky.
+        let required_version = if data.inboxes.is_empty() { 1 } else { 2 };
+        let version = previous_version.max(required_version);
         let value = serde_json::to_value(data)?;
         transaction
             .execute(
-                "UPDATE hudson_state SET state=$2 WHERE namespace=$1",
-                &[&self.namespace, &value],
+                "UPDATE hudson_state SET state=$2,schema_version=$3 WHERE namespace=$1",
+                &[&self.namespace, &value, &version],
             )
             .map_err(database_error)?;
         transaction.commit().map_err(database_error)?;

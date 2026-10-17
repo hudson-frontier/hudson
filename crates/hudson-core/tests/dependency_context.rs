@@ -94,6 +94,7 @@ fn publish(
 }
 fn reader(store: Store) -> (ToolRegistry, Tool, ContextPolicy) {
     let policy = ContextPolicy {
+        reserve_bytes: 0,
         offload_bytes: 4096,
         excerpt_bytes: 256,
         recent_exchanges: 1,

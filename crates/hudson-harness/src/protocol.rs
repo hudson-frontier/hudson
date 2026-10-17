@@ -67,11 +67,27 @@ pub enum ModelResponse {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Input {
-    Start { value: Value },
-    Model { response: ModelResponse },
-    Tools { results: Vec<ToolResult> },
-    Verification { passed: bool, feedback: String },
-    User { value: Value },
+    /// Host-owned messages applied after this boundary's input is finalized.
+    Queued {
+        input: Box<Input>,
+        messages: Vec<Value>,
+    },
+    Start {
+        value: Value,
+    },
+    Model {
+        response: ModelResponse,
+    },
+    Tools {
+        results: Vec<ToolResult>,
+    },
+    Verification {
+        passed: bool,
+        feedback: String,
+    },
+    User {
+        value: Value,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

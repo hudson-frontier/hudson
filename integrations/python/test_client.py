@@ -27,6 +27,9 @@ class ClientTests(unittest.TestCase):
             def do_POST(self):
                 self.handle_request()
 
+            def do_DELETE(self):
+                self.handle_request()
+
             def handle_request(self):
                 owner = self.server.owner
                 raw = self.rfile.read(int(self.headers.get('Content-Length', '0')))
@@ -72,6 +75,19 @@ class ClientTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True), self.assertRaises(ValueError):
             HudsonClient(self.url, token_env='MISSING_TOKEN')
         self.assertEqual(self.requests, [])
+
+    def test_queue_controls_use_explicit_methods_and_never_resume(self):
+        self.client.queue_message(RUN, {'task': 'next'}, kind='steer', request_key='message-1')
+        self.client.queued_messages(RUN)
+        self.client.clear_queued_messages(RUN)
+        self.assertEqual([(method, path) for method, path, _, _ in self.requests], [
+            ('POST', f'/runs/{RUN}/messages'), ('GET', f'/runs/{RUN}/messages'),
+            ('DELETE', f'/runs/{RUN}/messages')])
+        self.assertEqual(self.requests[0][3], {'kind': 'steer', 'input': {'task': 'next'}, 'request_key': 'message-1'})
+        for kind in ['reply', 'approval', None]:
+            with self.assertRaises(ValueError):
+                self.client.queue_message(RUN, 'invalid', kind=kind, request_key='message-2')
+        self.assertEqual(len(self.requests), 3)
 
     def test_does_not_forward_auth_on_redirect(self):
         self.respond = lambda *_: (307, b'', {'Location': self.url + '/redirect-target'})

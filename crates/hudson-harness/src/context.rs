@@ -46,12 +46,48 @@ impl History {
     /// Find an oldest complete exchange after the original task. Pending tool
     /// calls are never split from results, including parallel call batches.
     pub fn oldest_complete_exchange(&self) -> Option<std::ops::Range<usize>> {
+        let protected = self.latest_direction_index();
+        self.exchange_at(if protected == Some(1) { 2 } else { 1 })
+    }
+
+    /// Scan each message once, retaining the original task and newest user direction.
+    pub fn complete_exchanges(&self) -> Vec<std::ops::Range<usize>> {
+        let protected = self.latest_direction_index();
+        let mut ranges = Vec::new();
+        let mut start = 1;
+        while start < self.messages.len() {
+            if Some(start) == protected {
+                start += 1;
+                continue;
+            }
+            let Some(range) = self.exchange_at(start) else {
+                break;
+            };
+            start = range.end;
+            ranges.push(range);
+        }
+        ranges
+    }
+
+    fn latest_direction_index(&self) -> Option<usize> {
+        self.messages.iter().rposition(|message| {
+            // Default-loop user inputs are JSON. Its generated repair text uses
+            // this reserved prefix, including in checkpoints from older builds.
+            message.role == crate::Role::User && !matches!(message.content.as_slice(),
+                [crate::Content::Text { text }] if text.starts_with(crate::agent_loop::VERIFICATION_FEEDBACK_PREFIX))
+        })
+    }
+
+    fn exchange_at(&self, start: usize) -> Option<std::ops::Range<usize>> {
         use crate::Content;
         use std::collections::BTreeSet;
-        if self.messages.len() <= 2 {
+        if start >= self.messages.len() {
             return None;
         }
-        let first = &self.messages[1];
+        let first = &self.messages[start];
+        if first.role == crate::Role::Tool {
+            return None;
+        }
         let calls: BTreeSet<_> = first
             .content
             .iter()
@@ -60,11 +96,20 @@ impl History {
                 _ => None,
             })
             .collect();
+        if calls.len()
+            != first
+                .content
+                .iter()
+                .filter(|content| matches!(content, Content::ToolCall { .. }))
+                .count()
+        {
+            return None;
+        }
         if calls.is_empty() {
-            return Some(1..2);
+            return Some(start..start + 1);
         }
         let mut received = BTreeSet::new();
-        for (offset, message) in self.messages[2..].iter().enumerate() {
+        for (offset, message) in self.messages[start + 1..].iter().enumerate() {
             if message.role != crate::Role::Tool {
                 return None;
             }
@@ -79,7 +124,7 @@ impl History {
                 }
             }
             if received == calls {
-                return Some(1..offset + 3);
+                return Some(start..start + offset + 2);
             }
         }
         None

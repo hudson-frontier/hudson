@@ -41,6 +41,13 @@ appropriate. Question identity comes from `wait.question_id`. `resume` and
 `cancel` are explicit controls. Closing the observation generator never cancels
 or resumes the run.
 
+`queue_message(run_id, value, kind='steer', request_key='direction-1')` adds user
+direction at the next complete boundary. Use `kind='follow_up'` to wait for a
+verified answer first. `queued_messages` inspects pending input and
+`clear_queued_messages` withdraws it. Replays retain their original receipt even
+after consumption or withdrawal. Queue controls never approve, answer a saved
+question, or resume execution. See [limits and ordering](../../docs/harness-controls.md).
+
 All requests time out (default 15 seconds; maximum 60). Encoded request bodies
 are capped at 64 KiB; responses default to 8 MiB and can be bounded lower.
 Event pages contain 1–1000 events. Observation has explicit total page/poll

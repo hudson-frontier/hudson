@@ -45,6 +45,16 @@ def check(root=ROOT):
               if item['name'] in names and 'source' not in item]
     require({item['name'] for item in locked} == names, 'Cargo.lock must contain every workspace crate')
     require(all(item['version'] == version for item in locked), 'Workspace versions in Cargo.lock differ')
+    release = json.loads((root / 'release-please-config.json').read_text())
+    lock_updates = [item for item in release['packages']['.']['extra-files']
+                    if item.get('path') == 'Cargo.lock']
+    require(len(lock_updates) == 1, 'Release automation must have one Cargo.lock updater')
+    if len(lock_updates) == 1:
+        selector = lock_updates[0].get('jsonpath', '')
+        selected = set(re.findall(r"@\.name\.value\s*==\s*'([^']+)'", selector))
+        require(lock_updates[0].get('type') == 'toml' and '!@.source' in selector,
+                'Release automation must limit Cargo.lock updates to local TOML packages')
+        require(selected == names, 'Release Cargo.lock allowlist must match every workspace crate')
     harbor = read_toml(root / 'integrations/harbor/pyproject.toml')['project']
     require(harbor.get('license') == 'Apache-2.0', 'Harbor license must be Apache-2.0')
     require(harbor['version'] == version, 'Harbor and Rust versions differ')

@@ -1,6 +1,6 @@
 # Hudson code structure
 
-The implementation is one Cargo workspace with six crates. Domain behavior
+The implementation is one Cargo workspace with seven crates. Domain behavior
 belongs in tools and configuration. The loop has its own module and performs no IO.
 
 ```text
@@ -23,6 +23,7 @@ crates/
     budgets.rs         per-run and shared model-call admission
     verification.rs    output/goal contracts and repair feedback
     recovery.rs        interrupted-attempt fencing and receipt reconciliation
+    sandbox_binding.rs owned request bytes, mutation keys, attempt and receipt fences
     skills.rs          immutable instruction catalogs and Markdown loading
     subagents.rs       delegate, join, persisted lineage
     evaluation.rs      ordinary-runtime regression cases and reports
@@ -38,6 +39,7 @@ crates/
       tools.rs         ToolExecutor and trusted Rust ToolRegistry
       http_tools.rs    configured HTTP tool transport
       sandbox.rs       explicit unsupported Sandbox guard
+      sandbox_recovery.rs transport-independent sandbox admission/receipt decisions
     fixtures.rs        opt-in scripted conformance fixtures
   hudson-worker/src/
     main.rs            entrypoint and offline demo
@@ -56,6 +58,8 @@ crates/
     main.rs            generic HTTP client
     commands.rs        command arguments
     client.rs          HTTP transport
+  hudson-sandbox-transport/src/
+    lib.rs             pinned SDK bodies and owned, bounded HTTPS receipt observation
 ```
 
 ## Dependencies
@@ -66,6 +70,7 @@ hudson-temporal ├─→ hudson-core ─→ hudson-harness
 hudson-server ──┘
 
 hudson-cli ── HTTP/JSON ─→ hudson-server
+hudson-sandbox-transport ─→ hudson-core + pinned public sandbox-client SDK
 ```
 
 `hudson-harness` owns the current default state machine. An embedder can supply a
@@ -111,8 +116,9 @@ provides attempt IDs for explicit recovery.
 
 PostgreSQL transitions lock and replace a namespace's JSONB document. This is
 transactional and simple, but serializes writes and is not a high-throughput layout.
-There is no distributed scheduler or automatic lease recovery. Same-store
-subagents run synchronously with cooperative join and shared budgets.
+The original synchronous hosts have no automatic lease recovery. Their same-store
+subagents use cooperative joins and shared budgets; the separate Temporal host
+provides durable scheduling and concurrent child workflows.
 
 Rust functions are trusted code. Sandbox execution fails closed; the separate
 Hudson Sandbox integration is unfinished. The HTTP host uses one loopback-only

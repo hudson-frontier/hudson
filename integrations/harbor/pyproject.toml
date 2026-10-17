@@ -8,7 +8,7 @@ version = "0.1.0"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = ["harbor @ git+https://github.com/harbor-framework/harbor.git@15da91c18580a25489f5bdf2ee71029f3ff3bb2e", "aiohttp>=3.14.3,<4"]
+dependencies = ["harbor @ git+https://github.com/harbor-framework/harbor.git@15da91c18580a25489f5bdf2ee71029f3ff3bb2e", "aiohttp>=3.14.4,<4"]
 
 [tool.setuptools.packages.find]
 include = ["hudson_harbor*"]

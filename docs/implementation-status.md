@@ -1,5 +1,12 @@
 # Implementation audit
 
+The local preview Python client and explicit HTTP contract baseline are documented
+in [api-compatibility.md](api-compatibility.md). Protocol regressions cover transport
+bounds, credential-safe errors, event paging and waits. The opt-in local
+PostgreSQL/Temporal fixtures additionally exercise that caller across publication,
+authentication, approval and restart. This does not declare a stable versioned API
+or a registry-published SDK.
+
 The managed-capability extension is tracked in [capability-delivery.md](capability-delivery.md).
 Its requirement-by-requirement audit and local verification are complete. The
 historical initial-milestone notes below are supplemented by that audit and

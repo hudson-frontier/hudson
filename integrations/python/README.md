@@ -1,0 +1,75 @@
+# Local Python client
+
+The standard-library `hudson_client.py` module targets the documented preview
+HTTP API. Python is used by the existing publication/restart acceptance caller
+in `scripts/smoke_publication.py`; this client replaces repeated transport code
+for that caller. No package registry installation is needed. Requires Python 3.12+.
+
+Run from the repository root with `PYTHONPATH=integrations/python`, or add that
+directory to your application's module path. See
+[preview compatibility](../../docs/api-compatibility.md) before upgrading.
+
+```python
+from hudson_client import HudsonClient, HttpError
+
+client = HudsonClient('http://127.0.0.1:4318', token_env='HUDSON_API_TOKEN')
+# tool.json and agent.json follow examples/customer-api/README.md and select
+# connections and model profiles already provisioned by the operator.
+import json
+with open('tool.json', encoding='utf-8') as stream:
+    tool = json.load(stream)
+with open('agent.json', encoding='utf-8') as stream:
+    agent = json.load(stream)
+client.publish_tool(tool, request_key='tool-v1')
+published = client.publish_agent(agent, request_key='agent-v1')
+run_id = client.start({'task': 'Look up record 42'}, request_key='record-42',
+                      agent_ref=published['agent_ref'])['run_id']
+
+# Persist run_id and the last fully processed event sequence in your application.
+after = 0
+for record in client.follow(run_id, after=after):
+    print(record)
+    after = record['after']  # save only after processing the record
+# Reconnect with the same run_id and after. Observation only makes GET requests.
+```
+
+`follow` drains every event page before reporting the status snapshot. It returns
+on completed, failed, cancelled, or waiting status. Waiting is not completion:
+inspect `record['run']['wait']`, then explicitly call `approve(operation_id,
+approved=True)` or `reply(run_id, value, request_key=..., question_id=...)` as
+appropriate. Question identity comes from `wait.question_id`. `resume` and
+`cancel` are explicit controls. Closing the observation generator never cancels
+or resumes the run.
+
+All requests time out (default 15 seconds; maximum 60). Encoded request bodies
+are capped at 64 KiB; responses default to 8 MiB and can be bounded lower.
+Event pages contain 1–1000 events. Observation has explicit total page/poll
+budgets and bounded poll intervals. Exhaustion reports the last processed
+cursor. HTTP and transport failures stop observation, preserving previously
+yielded cursors. The client makes no automatic retries or extra model calls.
+
+Reuse the exact publication/submission key and body after an ambiguous failure;
+never invent a new key to retry a write. Reusing a version/key with changed
+content produces HTTP 409. Approval and resume are not blindly retried by this
+client. After an uncertain external effect, follow the ordinary
+[recovery procedure](../../docs/recovery.md).
+
+URLs must be HTTPS or loopback HTTP origins without URL credentials, paths,
+queries or fragments. Redirects and environment proxies are disabled. TLS uses
+the platform trust configuration. Tokens are absent from client representations
+and exception text; error responses are identified by HTTP status before JSON
+decoding, including plain-text framework failures. `HttpError.status` exposes
+the status. Missing/expired/revoked credentials surface as errors and are never
+silently refreshed. Construct a new client with the rotated credential.
+
+Run protocol regressions with:
+
+```sh
+python3 -m unittest discover -s integrations/python -v
+python3 scripts/check_api_compatibility.py
+```
+
+The ordinary check runner includes these offline tests. The opt-in local
+PostgreSQL/Temporal suite additionally runs the client against authenticated
+publication, conflicts, approval waits, API/worker restarts and reconnects.
+Neither test path needs paid providers or hosted infrastructure.

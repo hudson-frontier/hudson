@@ -11,12 +11,16 @@ import re
 import select
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'integrations/python'))
+from hudson_client import HudsonClient, HttpError
 
 binary = pathlib.Path(os.environ['HUDSON_TEST_BIN_DIR'])
 database = os.environ['HUDSON_TEST_DATABASE']
@@ -118,7 +122,7 @@ def until(run, status, process):
     deadline = time.monotonic() + 40
     while time.monotonic() < deadline:
         assert process.poll() is None, process.communicate(timeout=5)
-        view = expect('GET', '/runs/' + run)
+        view = HudsonClient(api, token=token).run(run)
         if view['status'] == status:
             return view
         assert view['status'] not in ('failed', 'cancelled'), view
@@ -172,6 +176,13 @@ try:
             assert token not in result.stdout + result.stderr
             return json.loads(result.stdout)
         assert cli('capabilities')['models']
+        assert HudsonClient(api, token=token).capabilities()['models']
+        try:
+            HudsonClient(api, token='forged').capabilities()
+        except HttpError as error:
+            assert error.status == 401
+        else:
+            raise AssertionError('client accepted invalid credential')
         expect('GET', '/capabilities', code=401, bearer='forged')
         other_scope = [value if value != 'company' else 'other-company' for value in scope]
         other = subprocess.run([str(binary / 'hudson-credentials'), *other_scope, 'issue',
@@ -201,6 +212,7 @@ try:
         receipt = receipts[0]
         assert all(item == receipt for item in receipts)
         assert expect('POST', '/tools', body, code=201) == receipt
+        assert HudsonClient(api, token=token).publish_tool(tool, request_key='tool-one') == receipt
         tool_path = pathlib.Path(directory) / 'tool.json'
         tool_path.write_text(json.dumps(body))
         assert cli('publish-tool', str(tool_path)) == receipt
@@ -214,7 +226,7 @@ try:
         expect('POST', '/agents', {'request_key': 'denied', 'agent': dict(agent, endpoint=endpoint)}, code=422)
         expect('POST', '/agents', {'request_key': 'denied', 'agent': dict(agent, model_budget=3)}, code=403)
         expect('POST', '/agents', {'request_key': 'denied', 'agent': dict(agent, tools=[{'id': 'unknown', 'version': 1}])}, code=404)
-        publication = expect('POST', '/agents', {'request_key': 'agent-one', 'agent': agent}, code=201)
+        publication = HudsonClient(api, token=token).publish_agent(agent, request_key='agent-one')
         assert expect('POST', '/agents', {'request_key': 'agent-one', 'agent': agent}, code=201) == publication
         agent_path = pathlib.Path(directory) / 'agent.json'
         agent_path.write_text(json.dumps({'request_key': 'agent-one', 'agent': agent}))
@@ -226,7 +238,8 @@ try:
         task = {'agent_ref': publication['agent_ref'], 'input': {'task': 'first'}, 'request_key': 'first'}
         expect('POST', '/runs', dict(task, workspace_id='other'), code=422)
         expect('POST', '/runs', {'input': {}, 'request_key': 'missing-agent'}, code=400)
-        first = expect('POST', '/runs', task, code=202)['run_id']
+        first = HudsonClient(api, token=token).start(task['input'], request_key='first',
+                    agent_ref=task['agent_ref'])['run_id']
         assert expect('POST', '/runs', task, code=202)['run_id'] == first
         input_path = pathlib.Path(directory) / 'input.json'
         input_path.write_text(json.dumps(task['input']))
@@ -236,14 +249,22 @@ try:
         work = worker()
         server, api = start_api()
         waiting = until(first, 'waiting', work)
+        wait_records = list(HudsonClient(api, token=token).follow(first, page_size=1))
+        assert wait_records[-1]['run']['status'] == 'waiting'
+        after = wait_records[-1]['after']
         operation = waiting['wait']['operation_id']
         assert expect('GET', '/operations/' + operation)['arguments'] == {'customer_id': 42}
         assert not observed['writes'], 'write ran without approval'
         stop(work)
-        expect('POST', '/operations/' + operation + '/approval', {'approved': True})
+        HudsonClient(api, token=token).approve(operation, approved=True)
         assert not observed['writes'], 'API executed the customer tool'
         work = worker()
         assert until(first, 'completed', work)['result'] == 'Record 42 verified'
+        finished = list(HudsonClient(api, token=token).follow(first, after=after, page_size=1))
+        assert finished[-1]['run']['result'] == 'Record 42 verified'
+        reconnect = list(HudsonClient(api, token=token).follow(first,
+                         after=finished[-1]['after'], page_size=1))
+        assert [record['type'] for record in reconnect] == ['run']
         # A second task on the same immutable revision gets a fresh two-call budget.
         second_task = dict(task, request_key='second', input={'task': 'second'})
         second = expect('POST', '/runs', second_task, code=202)['run_id']

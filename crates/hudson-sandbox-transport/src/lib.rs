@@ -1,6 +1,11 @@
-//! Pinned public SDK qualification. No mutation dispatch or runtime integration.
-//! Observations lack verified operator-profile identity and are not completion evidence.
+//! Pinned public SDK transport foundation. No mutation dispatch or runtime integration.
+//! Declared profile verification prevents configuration drift; backend auth still owns authority.
 use hudson_core::adapters::sandbox_recovery::{Decision, PendingOperation, Receipt, Step};
+use hudson_core::{
+    models::Actor,
+    sandbox_binding::{Binding, Fence},
+    storage::Store,
+};
 pub use sandbox_client::models::{CommandInput, CreateRequest, DestroyRequest};
 use sandbox_client::{requests::GetOperation, Client};
 use std::path::Path;
@@ -11,12 +16,27 @@ pub enum Error {
     Request,
     #[error("original operation requires reconciliation")]
     Reconcile,
-    #[error("SDK cannot verify the durable operator profile identity")]
-    ProfileIdentityUnavailable,
+    #[error("operator profile declaration differs from the durable binding")]
+    ProfileMismatch,
+    #[error(transparent)]
+    Store(#[from] hudson_core::Error),
     #[error("observation exceeds caller payload bound")]
     Oversized,
     #[error(transparent)]
     Sdk(#[from] sandbox_client::Error),
+    #[error("sandbox storage task could not complete")]
+    StoreTask,
+}
+
+async fn blocking_store<T, F>(operation: F) -> Result<T, Error>
+where
+    T: Send + 'static,
+    F: FnOnce() -> hudson_core::Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|_| Error::StoreTask)?
+        .map_err(Error::Store)
 }
 
 /// Canonical SDK wire body; no credentials or inferred package/command mapping.
@@ -63,8 +83,8 @@ impl PreparedBody {
     }
 }
 
-/// Non-authoritative SDK protocol probe. This does not establish endpoint/project binding.
-/// Do not attach its results as durable completion or cleanup evidence.
+/// SDK protocol probe and owned receipt observer. Profile declaration is not authorization.
+/// Unverified probes never establish durable completion or cleanup evidence.
 pub struct QualificationObserver {
     client: Client,
 }
@@ -75,6 +95,12 @@ pub struct ProbeObservation {
     pub error: Option<serde_json::Value>,
     pub output_status: Option<String>,
 }
+/// An owned Store receipt recorded after matching the constructed client declaration.
+/// This establishes operation status only, never guest policy or agent task success.
+pub struct BoundObservation {
+    pub binding: Binding,
+    pub observation: ProbeObservation,
+}
 impl QualificationObserver {
     /// Reads trusted private SDK configuration; no agent arguments or insecure TLS switch.
     pub fn from_operator_profile(path: &Path) -> Result<Self, Error> {
@@ -82,20 +108,90 @@ impl QualificationObserver {
             client: Client::from_config(path)?,
         })
     }
-    /// Fail closed before polling: the pinned SDK does not expose actual profile identity.
+    /// Canonical representation: SHA256 of UTF-8 serde JSON array [origin, project_id].
+    /// Origin uses the SDK's validated URL normalization; no token/CA/path is included.
+    /// This pins a trusted local declaration, not server authorization evidence.
+    pub fn profile_fingerprint(&self) -> Result<String, Error> {
+        let identity = self.client.identity();
+        Ok(hudson_core::definitions::digest(&[
+            identity.origin,
+            identity.project_id,
+        ])?)
+    }
+    /// Persist SDK-canonical bytes with the actual constructed client's declaration.
+    /// No external request is sent and no admission intent is consumed.
+    pub fn prepare_request(
+        &self,
+        store: &Store,
+        actor: &Actor,
+        fence: Fence,
+        pending: PendingOperation,
+        body: &PreparedBody,
+    ) -> Result<Binding, Error> {
+        if pending.step != body.step() {
+            return Err(Error::Request);
+        }
+        Ok(store.prepare_sandbox_request(
+            actor,
+            fence,
+            pending,
+            body.canonical_json()?,
+            &self.profile_fingerprint()?,
+        )?)
+    }
+    /// Check owned binding and actual declared profile BEFORE any GET, then fence the Store write.
+    /// Backend bearer checks still establish actual project authorization.
     pub async fn observe_binding(
         &self,
-        _binding: &hudson_core::sandbox_binding::Binding,
-    ) -> Result<ProbeObservation, Error> {
-        Err(Error::ProfileIdentityUnavailable)
+        store: &Store,
+        actor: &Actor,
+        fence: &Fence,
+        step: Step,
+        max_payload_bytes: usize,
+    ) -> Result<BoundObservation, Error> {
+        let read_store = store.clone();
+        let read_actor = actor.clone();
+        let read_fence = fence.clone();
+        let read_step = step.clone();
+        let binding = blocking_store(move || {
+            read_store.sandbox_observation_binding(&read_actor, &read_fence, read_step)
+        })
+        .await?;
+        if binding.profile_fingerprint != self.profile_fingerprint()? {
+            return Err(Error::ProfileMismatch);
+        }
+        let (receipt, observation) = self
+            .fetch_receipt(&binding.pending, max_payload_bytes)
+            .await?;
+        if observation.decision == Decision::Reconcile {
+            return Err(Error::Reconcile);
+        }
+        let write_store = store.clone();
+        let write_actor = actor.clone();
+        let write_fence = fence.clone();
+        let binding = blocking_store(move || {
+            write_store.record_sandbox_receipt(&write_actor, &write_fence, step, &receipt)
+        })
+        .await?;
+        Ok(BoundObservation {
+            binding,
+            observation,
+        })
     }
     /// Inspects only the original bound ID. Never waits, cancels, retries, or mutates.
-    /// Profile identity is unverified until the SDK exposes its canonical origin/project.
+    /// This probe intentionally bypasses durable profile verification; its output is non-authoritative.
     pub async fn inspect_unverified(
         &self,
         pending: &PendingOperation,
         max_payload_bytes: usize,
     ) -> Result<ProbeObservation, Error> {
+        Ok(self.fetch_receipt(pending, max_payload_bytes).await?.1)
+    }
+    async fn fetch_receipt(
+        &self,
+        pending: &PendingOperation,
+        max_payload_bytes: usize,
+    ) -> Result<(Receipt, ProbeObservation), Error> {
         if !(1..=65536).contains(&max_payload_bytes) {
             return Err(Error::Request);
         }
@@ -125,18 +221,36 @@ impl QualificationObserver {
         let decision = pending.decision(Some(&receipt));
         // Unknown/expired/mismatched receipts cannot smuggle an apparent success result.
         let release = matches!(decision, Decision::Succeeded | Decision::Failed);
-        Ok(ProbeObservation {
-            decision,
-            result: if release { operation.result } else { None },
-            error: if release { operation.error } else { None },
-            output_status: operation.output_status,
-        })
+        Ok((
+            receipt,
+            ProbeObservation {
+                decision,
+                result: if release { operation.result } else { None },
+                error: if release { operation.error } else { None },
+                output_status: operation.output_status,
+            },
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocked_storage_does_not_stall_the_async_executor() {
+        let (release, blocked) = std::sync::mpsc::channel();
+        let storage = blocking_store(move || {
+            blocked
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .map_err(|_| hudson_core::Error::Invalid("async executor stalled".into()))
+        });
+        let progress = async move {
+            tokio::task::yield_now().await;
+            release.send(()).unwrap();
+        };
+        let (result, ()) = tokio::join!(storage, progress);
+        result.unwrap();
+    }
     #[test]
     fn canonical_bytes_preserve_absolute_deadline_and_reject_normalization() {
         let request = PreparedBody::Execute(CommandInput {

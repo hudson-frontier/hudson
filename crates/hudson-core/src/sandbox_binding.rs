@@ -193,6 +193,25 @@ impl Store {
             Ok(binding.clone())
         })
     }
+    /// Authorize receipt IO against the current pending operation and admitted attempt.
+    pub fn sandbox_observation_binding(
+        &self,
+        actor: &Actor,
+        fence: &Fence,
+        step: crate::adapters::sandbox_recovery::Step,
+    ) -> Result<Binding> {
+        self.read(|d| {
+            let current_digest = authorized(d, actor, fence, false)?;
+            let binding = d
+                .sandbox_bindings
+                .get(&format!("{}:{step:?}", fence.operation_id))
+                .ok_or(Error::NotFound)?;
+            if &binding.fence != fence || binding.operation_request_digest != current_digest {
+                return Err(Error::Denied);
+            }
+            Ok(binding.clone())
+        })
+    }
     /// A 202 binds receipt IDs only. It never records success or cleanup completion.
     pub fn bind_sandbox_admission(
         &self,
@@ -552,6 +571,9 @@ mod tests {
             .begin_sandbox_admission(&actor, &fence, Step::Create)
             .is_err());
         assert!(store
+            .sandbox_observation_binding(&actor, &fence, Step::Create)
+            .is_err());
+        assert!(store
             .prepare_sandbox_request(
                 &actor,
                 fence,
@@ -559,6 +581,31 @@ mod tests {
                 "{ \"deadline\": 123 }".into(),
                 PROFILE
             )
+            .is_err());
+    }
+    #[test]
+    fn replaced_attempt_cannot_authorize_an_original_receipt_observation() {
+        let (store, actor, fence, pending) = seeded(Store::default());
+        prepare(&store, &actor, &fence, &pending);
+        assert!(store
+            .sandbox_observation_binding(&actor, &fence, Step::Create)
+            .is_ok());
+        store
+            .transact(|d| {
+                d.operations
+                    .get_mut(&fence.operation_id)
+                    .unwrap()
+                    .attempts
+                    .last_mut()
+                    .unwrap()
+                    .id = Uuid::new_v4();
+                Ok(())
+            })
+            .unwrap();
+        // Historical inspection remains available, but it cannot authorize IO.
+        assert!(store.sandbox_binding(&actor, &fence, Step::Create).is_ok());
+        assert!(store
+            .sandbox_observation_binding(&actor, &fence, Step::Create)
             .is_err());
     }
     #[test]

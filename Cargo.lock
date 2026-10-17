@@ -2934,7 +2934,7 @@ dependencies = [
 [[package]]
 name = "sandbox-client"
 version = "0.0.0"
-source = "git+https://github.com/hudson-infinity/hudson-sandbox.git?rev=aa5cef5c51b7c735e6ede82d2c4f6e90f4f4f119#aa5cef5c51b7c735e6ede82d2c4f6e90f4f4f119"
+source = "git+https://github.com/hudson-infinity/hudson-sandbox.git?rev=aac70c726e542ad4701dda64931d62135beb7da0#aac70c726e542ad4701dda64931d62135beb7da0"
 dependencies = [
  "base64 0.22.1",
  "hex",

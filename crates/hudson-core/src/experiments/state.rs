@@ -145,14 +145,13 @@ impl Store {
             for (index, run_id) in &record.runs {
                 let run = d.run(actor, *run_id)?;
                 if *index == record.cursor
-                    && matches!(run.status, RunStatus::Waiting | RunStatus::Cancelling)
-                    || *index == record.cursor
-                        && run.pending_operations.iter().any(|id| {
+                    && (matches!(run.status, RunStatus::Waiting | RunStatus::Cancelling)
+                        || run.pending_operations.iter().any(|id| {
                             matches!(
                                 d.operations[id].status,
                                 OperationStatus::Unknown | OperationStatus::Running
                             )
-                        })
+                        }))
                 {
                     waiting = true;
                 }

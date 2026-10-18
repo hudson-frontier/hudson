@@ -557,3 +557,51 @@ impl crate::adapters::models::ModelExecutor for CancelOnly {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_matching_unscoped_submission_is_rejected_before_dispatch() {
+        let store = Store::default();
+        let actor = Actor {
+            workspace_id: "scope-unit".into(),
+            id: "operator".into(),
+        };
+        let configuration = Configuration::from_effective_definition(json!({
+            "name":"fixture","instructions":"Return a label","model":"fixture",
+            "endpoint":"http://127.0.0.1:1/model"
+        }))
+        .unwrap();
+        let spec: Spec = serde_json::from_value(json!({
+            "request_key":"scope-collision","domain":"labels","probe":"visible","max_model_calls":8,
+            "validation":[{"name":"held-out","input":"other","expected_schema":{"type":"string"}}]
+        }))
+        .unwrap();
+        let mut driver = Driver::open(store.clone(), actor.clone(), configuration, spec).unwrap();
+        // One tick records a model intent but performs no provider request.
+        let first = driver.tick().unwrap();
+        let run = first.stages[0].run.id;
+        store
+            .transact(|data| {
+                data.experiments
+                    .get_mut(&driver.id())
+                    .unwrap()
+                    .runs
+                    .remove(&0);
+                data.experiment_runs.remove(&run);
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            matches!(driver.tick(), Err(Error::Conflict(message)) if message.contains("scope"))
+        );
+        assert!(driver.inspect().unwrap().stages.is_empty());
+        assert_eq!(driver.inspect().unwrap().admitted_model_calls, 0);
+        assert_eq!(
+            store.operations(&actor, run).unwrap()[0].status,
+            OperationStatus::Pending
+        );
+    }
+}

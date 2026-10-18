@@ -7,19 +7,33 @@ pub struct HttpTools {
     pub registered: ToolRegistry,
     client: reqwest::blocking::Client,
     bindings: BTreeMap<String, Option<String>>,
+    fixture_only: bool,
 }
 impl HttpTools {
     pub fn new(registered: ToolRegistry) -> Result<Self> {
-        let client = reqwest::blocking::Client::builder()
+        Self::build(registered, false)
+    }
+    pub(crate) fn fixture(registered: ToolRegistry) -> Result<Self> {
+        Self::build(registered, true)
+    }
+    fn build(registered: ToolRegistry, no_proxy: bool) -> Result<Self> {
+        let builder = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        let builder = if no_proxy {
+            builder.no_proxy()
+        } else {
+            builder
+        };
+        let client = builder
             .build()
             .map_err(|_| Error::Invalid("cannot initialize HTTP tool client".into()))?;
         Ok(Self {
             registered,
             client,
             bindings: BTreeMap::new(),
+            fixture_only: no_proxy,
         })
     }
     pub fn bind(&mut self, endpoint: &str, bearer_token: Option<String>) -> Result<()> {
@@ -31,6 +45,9 @@ impl HttpTools {
             || url.password().is_some()
             || url.query().is_some()
             || url.fragment().is_some()
+            || (self.fixture_only
+                && (!matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+                    || bearer_token.is_some()))
         {
             return Err(Error::Invalid(
                 "tool endpoint requires HTTPS or local HTTP without URL credentials".into(),

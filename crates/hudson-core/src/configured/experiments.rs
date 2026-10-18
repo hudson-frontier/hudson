@@ -30,11 +30,16 @@ impl Configuration {
         store: Store,
         actor: &Actor,
     ) -> Result<(AgentRuntime, VersionRef, Option<Goal>), Box<dyn std::error::Error>> {
+        self.fixture_surface(true)?;
         let tree = self.build_with_mode(store, actor, BuildMode::Experiment)?;
         Ok((tree.runtime, tree.reference, tree.goal))
     }
 
     pub(crate) fn experiment_template(&self) -> crate::Result<Variant> {
+        self.fixture_surface(false)
+    }
+
+    fn fixture_surface(&self, allow_budget: bool) -> crate::Result<Variant> {
         let d = &self.0;
         if !matches!(d.provider.as_str(), "" | "openai" | "ollama")
             || d.model
@@ -42,7 +47,11 @@ impl Configuration {
                 .is_none_or(|model| model.trim().is_empty())
             || !fixture_endpoint(&d.endpoint)
             || d.api_key_env.is_some()
-            || d.shared_model_budget.is_some()
+            || (!allow_budget && d.shared_model_budget.is_some())
+            || (allow_budget
+                && d.shared_model_budget
+                    .as_ref()
+                    .is_none_or(|budget| !(1..=256).contains(&budget.limit)))
             || d.memory.is_some()
             || d.allow_user_input
             || !d.subagents.is_empty()

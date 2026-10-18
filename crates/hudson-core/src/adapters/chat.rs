@@ -39,6 +39,19 @@ impl ChatModel {
         api_key: Option<String>,
         max_output_tokens: u32,
     ) -> crate::Result<Self> {
+        Self::build(endpoint, api_key, max_output_tokens, false)
+    }
+
+    pub(crate) fn fixture(endpoint: &str, max_output_tokens: u32) -> crate::Result<Self> {
+        Self::build(endpoint, None, max_output_tokens, true)
+    }
+
+    fn build(
+        endpoint: &str,
+        api_key: Option<String>,
+        max_output_tokens: u32,
+        no_proxy: bool,
+    ) -> crate::Result<Self> {
         let endpoint = reqwest::Url::parse(endpoint)
             .map_err(|_| crate::Error::Invalid("invalid model endpoint".into()))?;
         let local = matches!(
@@ -50,14 +63,21 @@ impl ChatModel {
             || endpoint.password().is_some()
             || endpoint.query().is_some()
             || endpoint.fragment().is_some()
+            || (no_proxy && !matches!(endpoint.host_str(), Some("127.0.0.1" | "[::1]")))
             || max_output_tokens == 0
         {
             return Err(crate::Error::Invalid("model endpoint requires HTTPS (or local HTTP), no URL credentials, and a positive token limit".into()));
         }
-        let client = reqwest::blocking::Client::builder()
+        let builder = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(120))
             .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        let builder = if no_proxy {
+            builder.no_proxy()
+        } else {
+            builder
+        };
+        let client = builder
             .build()
             .map_err(|_| crate::Error::Invalid("cannot construct model HTTP client".into()))?;
         Ok(Self {

@@ -83,6 +83,12 @@ try:
         env = os.environ.copy()
         # Deliberately present: experiment build mode must never read/forward it.
         env['OPENAI_API_KEY'] = 'must-not-forward'
+        # If inherited proxies are honored, the fixture receives an absolute URL
+        # instead of /model or /tool and fails. No external proxy is contacted.
+        proxy = f'http://127.0.0.1:{server.server_port}'
+        for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+            env[name] = proxy
+        env['NO_PROXY'] = env['no_proxy'] = ''
         worker = 'target/debug/hudson-worker'
         command = [worker, '--config', str(config), '--experiment', str(spec)]
 

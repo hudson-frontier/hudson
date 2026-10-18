@@ -25,6 +25,9 @@ Use a trusted loopback fixture or local compatible model endpoint. The template
 must select an explicit model and a literal `127.0.0.1` or `[::1]` HTTP(S) endpoint.
 Read-only HTTP tools must also use literal loopback addresses. Experiment builds
 omit model credentials even when a provider key exists in the host environment.
+Model and tool fixture clients also disable inherited HTTP proxy settings.
+That credential/proxy policy is part of the model transport binding, so an
+ordinary executor cannot silently replace an experiment's fixture executor.
 
 ```json
 {

@@ -465,7 +465,7 @@ fn cancellation_fences_pending_stages_and_external_input_is_rejected() {
 }
 
 #[test]
-fn an_existing_unscoped_submission_cannot_be_attached_as_an_experiment_stage() {
+fn ordinary_admission_cannot_substitute_for_a_fixture_execution_binding() {
     let fixture = Fixture::new(Mode::Improve);
     let store = Store::default();
     let specification = spec("collision");
@@ -501,7 +501,7 @@ fn an_existing_unscoped_submission_cannot_be_attached_as_an_experiment_stage() {
         )
         .unwrap();
     assert!(
-        matches!(driver.tick(), Err(hudson_core::Error::Conflict(message)) if message.contains("scope"))
+        matches!(driver.tick(), Err(hudson_core::Error::Conflict(message)) if message.contains("transport"))
     );
     assert!(driver.inspect().unwrap().stages.is_empty());
     driver.cancel().unwrap();

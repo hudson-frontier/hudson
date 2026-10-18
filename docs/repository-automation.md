@@ -110,11 +110,18 @@ relicense them or replace a dependency license review.
 
 [Release Please](https://github.com/googleapis/release-please-action) runs only
 after successful push CI on current `main`. It updates one release PR for the
-whole repository. Conventional squash titles determine SemVer bumps: features
-are minor, fixes/performance are patch, and breaking changes are major. The
-initial manifest is `0.1.0`; the bootstrap SHA excludes older, nonconventional
-history. Versions and changelogs change only through the release PR, which must
-pass the same merge requirements as other changes.
+whole repository. The `always-bump-patch` versioning strategy advances the patch
+component even when unreleased commits contain features or breaking changes.
+With the current `0.1.0` manifest, the next proposal is `0.1.1`; subsequent
+releases continue to `0.1.2`, and so on. A minor or major release requires an
+explicit, reviewed policy change. The bootstrap SHA excludes older,
+nonconventional history. Versions and changelogs change only through the release
+PR, which must pass the same merge requirements as other changes.
+
+The bot creates release PRs as drafts. Keep them unmerged until a release is
+explicitly requested; preparing a draft does not publish a tag or GitHub release.
+Repository checks require this strategy and draft release PR configuration and
+reject a fixed `release-as` override that could skip or freeze patch progression.
 
 The `simple` strategy plus TOML extra-file updaters preserves inherited
 `version.workspace = true`. It updates `Cargo.toml`, all workspace packages in

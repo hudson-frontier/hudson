@@ -1,4 +1,4 @@
-"""Regressions for release synchronization when workspace membership changes."""
+"""Regressions for release policy and workspace version synchronization."""
 import json
 import pathlib
 import shutil
@@ -27,6 +27,47 @@ class ReleasePolicyTests(unittest.TestCase):
 
     def test_current_release_covers_workspace_crates(self):
         self.assertEqual(check_repository.check(self.root), [])
+
+    def test_release_strategy_cannot_skip_patch_increments(self):
+        path = self.root / 'release-please-config.json'
+        release = json.loads(path.read_text())
+        for strategy in (None, 'default', 'always-bump-minor', 'always-bump-major'):
+            with self.subTest(strategy=strategy):
+                if strategy is None:
+                    release['packages']['.'].pop('versioning')
+                else:
+                    release['packages']['.']['versioning'] = strategy
+                path.write_text(json.dumps(release))
+                self.assertIn('Release automation must use patch version increments',
+                              check_repository.check(self.root))
+
+    def test_release_proposals_must_stay_drafts(self):
+        path = self.root / 'release-please-config.json'
+        release = json.loads(path.read_text())
+        for location, draft in (('global', None), ('global', False), ('package', False)):
+            with self.subTest(location=location, draft=draft):
+                config = json.loads(json.dumps(release))
+                target = config if location == 'global' else config['packages']['.']
+                if draft is None:
+                    target.pop('draft-pull-request', None)
+                else:
+                    target['draft-pull-request'] = draft
+                path.write_text(json.dumps(config))
+                self.assertIn('Release automation must prepare draft pull requests',
+                              check_repository.check(self.root))
+
+    def test_fixed_release_versions_cannot_override_patch_progression(self):
+        path = self.root / 'release-please-config.json'
+        release = json.loads(path.read_text())
+        for location in ('global', 'package'):
+            with self.subTest(location=location):
+                config = json.loads(json.dumps(release))
+                target = config if location == 'global' else config['packages']['.']
+                target['release-as'] = '1.0.0'
+                path.write_text(json.dumps(config))
+                self.assertIn(
+                    'Release automation must derive the next patch from the release manifest',
+                    check_repository.check(self.root))
 
     def test_new_workspace_crate_cannot_be_omitted_from_release_versions(self):
         path = self.root / 'release-please-config.json'

@@ -81,14 +81,18 @@ been merged.
 The release bot runs after successful CI on `main`, maintains a release PR, and
 updates the shared Rust version, local Cargo.lock entries, Harbor integration
 version, `version.txt`, and changelog together. Do not bump these by hand in
-feature PRs. `fix` and `perf` produce patch releases, `feat` produces minor
-releases, and breaking changes produce major releases (including before 1.0).
+feature PRs. The current release policy uses patch increments: the next version
+after `0.1.0` is `0.1.1`. Conventional Commit types organize release notes;
+features and breaking changes also follow this patch progression. Changing the
+minor or major version requires an explicit, reviewed release-policy change.
 Documentation and maintenance changes join the next release.
 
-Release PRs receive the same required checks as other PRs, with no required
-approval from another member. Once the release PR is squash-merged and `main`
-CI passes, the bot creates its tag and
-GitHub release. Crates and Python packages are not automatically published.
+Release PRs are created as drafts and remain unmerged until a release is
+explicitly requested. They receive the same required checks as other PRs, with
+no required approval from another member. When a release is explicitly requested,
+mark its PR ready and squash-merge after checks pass. The bot creates the tag and
+GitHub release after `main` CI passes. Crates and Python packages are not
+automatically published.
 See [repository automation](docs/repository-automation.md) for setup and recovery.
 
 ## License

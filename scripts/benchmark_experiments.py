@@ -31,7 +31,7 @@ def main():
     for name in ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HUDSON_TEST_DATABASE', 'HUDSON_EXPERIMENT_RELEASE_EACH_TICK'):
         env.pop(name, None)
     before = source_digest()
-    build = subprocess.run(['cargo', 'test', '--locked', '-p', 'hudson-core', '--test', 'experiments',
+    build = subprocess.run(['cargo', 'test', '--locked', '-p', 'hudson-core', '--all-features', '--test', 'experiments',
                             '--no-run', '--message-format=json'], cwd=ROOT, env=env, capture_output=True, text=True, timeout=1200)
     if build.returncode:
         raise SystemExit(build.stderr)
@@ -64,7 +64,7 @@ def main():
         raise SystemExit('runtime source changed during comparison')
     report = {'runtime_source_digest': before, 'executable_sha256': hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest(),
               'workload': 'one probe, three held-out cases, four editing runs, fourteen runs, twenty-four local model requests; five experiments per invocation',
-              'rounds': args.rounds, 'samples_us': samples,
+              'rounds': args.rounds, 'cargo_features': 'all', 'samples_us': samples,
               'median_us': {name: statistics.median(values) for name, values in samples.items()},
               'profile_environment': {name: env.get(name) for name in ('CARGO_INCREMENTAL', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG', 'CARGO_BUILD_JOBS')}}
     print(json.dumps(report, indent=2))

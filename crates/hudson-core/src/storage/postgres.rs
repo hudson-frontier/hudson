@@ -53,7 +53,7 @@ impl MemoryStore {
 }
 fn decode(row: postgres::Row) -> Result<Data> {
     let version: i32 = row.try_get(0).map_err(database_error)?;
-    if !matches!(version, 1 | 2 | 3) {
+    if !matches!(version, 1..=3) {
         return Err(Error::Unsupported("unknown PostgreSQL state schema".into()));
     }
     let value: serde_json::Value = row.try_get(1).map_err(database_error)?;

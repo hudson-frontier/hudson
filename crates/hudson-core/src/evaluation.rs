@@ -107,31 +107,8 @@ pub fn evaluate<B: Backend, M: ModelExecutor, T: ToolExecutor>(
         let source_operations = runtime.store.operations(actor, id)?;
         let assessment = if let Some(error) = error {
             Err(error)
-        } else if run.status != RunStatus::Completed {
-            Err(format!("run did not complete: {:?}", run.status))
-        } else if !run
-            .assessment
-            .as_ref()
-            .is_some_and(|assessment| assessment.passed)
-        {
-            Err("runtime verification did not pass".into())
         } else {
-            // Some(Value::Null) is a valid final result; None is not.
-            match &run.result {
-                Some(value) => definitions::validate(&case.expected_schema, value)
-                    .map_err(|e| e.to_string())
-                    .and_then(|()| {
-                        case.criteria
-                            .iter()
-                            .position(|rule| {
-                                !rule.matches_with_operations(value, &source_operations)
-                            })
-                            .map_or(Ok(()), |i| {
-                                Err(format!("held-out criterion {} failed", i + 1))
-                            })
-                    }),
-                None => Err("completed run has no result".into()),
-            }
+            assess_completed(case, &run, &source_operations)
         };
         results.push(CaseResult {
             elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -149,4 +126,32 @@ pub fn evaluate<B: Backend, M: ModelExecutor, T: ToolExecutor>(
         passed: results.iter().all(|case| case.passed),
         cases: results,
     })
+}
+
+pub(crate) fn assess_completed(
+    case: &Case,
+    run: &RunView,
+    operations: &[Operation],
+) -> std::result::Result<(), String> {
+    if run.status != RunStatus::Completed {
+        return Err(format!("run did not complete: {:?}", run.status));
+    }
+    if !run
+        .assessment
+        .as_ref()
+        .is_some_and(|assessment| assessment.passed)
+    {
+        return Err("runtime verification did not pass".into());
+    }
+    // Some(Value::Null) is a valid final result; None is not.
+    let value = run.result.as_ref().ok_or("completed run has no result")?;
+    definitions::validate(&case.expected_schema, value).map_err(|e| e.to_string())?;
+    if let Some(index) = case
+        .criteria
+        .iter()
+        .position(|rule| !rule.matches_with_operations(value, operations))
+    {
+        return Err(format!("held-out criterion {} failed", index + 1));
+    }
+    Ok(())
 }

@@ -11,6 +11,7 @@ use crate::{
 };
 use hudson_harness::AgentLoop;
 use serde::{Deserialize, Serialize};
+mod experiments;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -302,6 +303,7 @@ impl ScheduledTree {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BuildMode {
     Local,
+    Experiment,
     Temporal,
     Admission,
 }
@@ -326,10 +328,10 @@ fn build(
     children: &mut ChildRuntimes,
     mode: BuildMode,
 ) -> Result<(AgentRuntime, VersionRef), Box<dyn std::error::Error>> {
-    let deferred = mode != BuildMode::Local;
+    let deferred = matches!(mode, BuildMode::Temporal | BuildMode::Admission);
     let admission = mode == BuildMode::Admission;
     let credential = |name: &str, required: bool| {
-        if admission {
+        if admission || mode == BuildMode::Experiment {
             Ok(None)
         } else {
             model_key(name, required)

@@ -6,6 +6,10 @@ use uuid::Uuid;
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Data {
     #[serde(default)]
+    pub experiments: BTreeMap<Uuid, crate::experiments::Record>,
+    #[serde(default)]
+    pub experiment_runs: BTreeMap<Uuid, Uuid>,
+    #[serde(default)]
     pub inboxes: BTreeMap<Uuid, crate::inbox::Inbox>,
     #[serde(default)]
     pub sandbox_bindings: BTreeMap<String, crate::sandbox_binding::Binding>,

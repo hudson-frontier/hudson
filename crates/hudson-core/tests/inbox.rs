@@ -228,7 +228,7 @@ fn postgres_queue_state_promotes_its_format_and_rejects_unknown_versions() {
     assert_eq!(version(&mut client), 2);
     client
         .execute(
-            "UPDATE hudson_state SET schema_version=3 WHERE namespace=$1",
+            "UPDATE hudson_state SET schema_version=4 WHERE namespace=$1",
             &[&namespace],
         )
         .unwrap();

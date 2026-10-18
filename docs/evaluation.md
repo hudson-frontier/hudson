@@ -1,5 +1,9 @@
 # Agent regression cases
 
+For bounded instruction/skill refinement with a held-out adoption gate, see
+[offline harness experiments](experiments.md). It reuses the evaluator described
+here and preserves the baseline when improvement cannot be established.
+
 A case supplies an input and a JSON Schema for the expected final output. Use
 `const` for an exact JSON value, or ordinary schema constraints for a broader
 contract. The expected schema stays outside the agent's context and does not

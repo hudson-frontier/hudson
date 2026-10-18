@@ -2,6 +2,7 @@ mod agent;
 mod config;
 mod control;
 mod evaluation;
+mod experiments;
 use clap::Parser;
 use config::Args;
 use hudson_core::{fixtures, models::WaitReason};

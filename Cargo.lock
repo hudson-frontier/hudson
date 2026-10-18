@@ -1216,7 +1216,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hudson-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "clap",
  "reqwest 0.12.28",
@@ -1226,7 +1226,7 @@ dependencies = [
 
 [[package]]
 name = "hudson-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "futures",
  "getrandom 0.4.3",
@@ -1249,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "hudson-harness"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "hudson-sandbox-transport"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hudson-core",
  "rcgen",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "hudson-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "clap",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "hudson-temporal"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "clap",
  "futures",
@@ -1309,7 +1309,7 @@ dependencies = [
 
 [[package]]
 name = "hudson-worker"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "clap",
  "hudson-core",

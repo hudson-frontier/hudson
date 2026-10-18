@@ -298,8 +298,9 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                         }
                         let binding = agent.tools.iter().find(|t| t.alias == call.name)
                             .ok_or_else(|| Error::Invalid("unregistered tool requested".into()))?;
-                        let tool = &d.tools[&(actor.workspace_id.clone(), binding.tool_ref.clone())];
-                        definitions::validate(&tool.input_schema, &call.arguments)?;
+                        // Keep malformed arguments as a correlated tool request. Dispatch
+                        // rejects them before execution so the model can correct its call
+                        // within the ordinary operation and model-call budgets.
                         requests.push(OperationRequest::Tool { tool_ref: binding.tool_ref.clone(), call: call.clone() });
                     }
                 }

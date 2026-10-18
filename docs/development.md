@@ -190,6 +190,12 @@ operation UUID after policy/approval checks. Duplicate registration is rejected;
 a panic becomes an unknown outcome. Rust functions are trusted application code,
 not sandboxed uploads. See `crates/hudson-core/examples/agent.rs` for complete wiring.
 
+Known tool calls with schema-invalid arguments receive correlated
+`invalid_arguments` feedback before execution, letting the model correct them
+within its normal budgets. A corrected write still requires its own approval.
+See [tool correction and provider failures](harness-controls.md#tool-correction-and-provider-failures)
+for ordered batches, recovery, and bounded provider diagnostics.
+
 ## Skills and specialists
 
 Skills are named instruction bodies, loaded via an ordinary read-only `load_skill`

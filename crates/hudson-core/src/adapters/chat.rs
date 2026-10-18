@@ -117,11 +117,11 @@ impl ChatModel {
             )
         })?;
         if !response.status().is_success() {
-            // Never put provider error bodies (possibly containing secrets/input) in events.
-            return Err(failed(&format!(
-                "model HTTP status {}",
-                response.status().as_u16()
-            )));
+            let status = response.status().as_u16();
+            // Inspect only a bounded body and retain only fixed categories. Providers
+            // can reflect prompts or credentials in any error field, including codes.
+            let category = super::provider_errors::classify(status, response);
+            return Err(failed(&format!("model HTTP status {status}: {category}")));
         }
         let mut bytes = Vec::new();
         response

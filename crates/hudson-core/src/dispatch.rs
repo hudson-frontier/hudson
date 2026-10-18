@@ -44,8 +44,30 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             let tool = match &operation.request {
                 OperationRequest::Tool { tool_ref, call } => {
                     let tool = d.tools[&(actor.workspace_id.clone(), tool_ref.clone())].clone();
-                    definitions::validate(&tool.input_schema, &call.arguments)?;
-                    match admit(policy_for(d, &tool), &run.actor_id, &operation, at) {
+                    let admission = admit(policy_for(d, &tool), &run.actor_id, &operation, at);
+                    // Denial takes precedence over argument feedback. A malformed call
+                    // never needs approval and must never reach an executor.
+                    if !matches!(admission, Admission::Deny)
+                        && definitions::validate(&tool.input_schema, &call.arguments).is_err()
+                    {
+                        operation.status = OperationStatus::Failed;
+                        operation.result = tool_error(
+                            &operation,
+                            "invalid_arguments",
+                            "Arguments do not match the tool's input schema. Correct the arguments before calling this tool again.",
+                        );
+                        operation.revision += 1;
+                        d.operations.insert(id, operation);
+                        d.event(
+                            run_id,
+                            Some(id),
+                            EventType::OperationSettled,
+                            None,
+                            json!({"status": "failed", "code": "invalid_arguments"}),
+                        );
+                        return Ok(None);
+                    }
+                    match admission {
                         Admission::Deny => {
                             operation.status = OperationStatus::Denied;
                             operation.result =

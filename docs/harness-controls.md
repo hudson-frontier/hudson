@@ -123,6 +123,8 @@ retain the previous serialized representation.
 | Provider continuation fidelity | Assistant text, signed thinking, redacted blocks, thought signatures |
 | Model controls and spend bounds | Pinned provider/model/options, output limits, run/shared call budgets, reported usage |
 | Tool lifecycle and extensions | Registered executors, schemas, dispatch authorization, approvals, recorded outcomes |
+| Model correction of tool arguments | Correlated validation errors before dispatch, normal budgets, approval on each corrected write |
+| Provider failure diagnostics | Bounded error-body inspection, fixed categories, no response-body disclosure or hidden retries |
 | Cancellation and recovery | Attempt fencing, uncertain-effect reconciliation, child cancellation |
 | Skills and lazy resources | Frozen catalogs, portable packages, scoped bounded resource reads |
 | Durable graphs and concurrency | Dependencies, child workflows, repetition bounds, shared budgets, Temporal scheduling |
@@ -138,6 +140,68 @@ execution is tracked separately from the protocol implementation.
 `scripts/smoke_inbox.py` checks the queue against local model/tool fixtures,
 PostgreSQL, the actual CLI, and an API restart. The full checker includes it
 with `--database --temporal`, without paid provider requests.
+
+## Tool correction and provider failures
+
+A known tool call whose arguments fail its pinned input schema receives an
+`invalid_arguments` tool result. It has a failed operation with no execution
+attempt, approval request, or external effect. The model can correct the call in
+its next ordinary request. Invalid calls count against tool/operation budgets;
+correction requests count against model-call budgets. There is no separate repair
+loop or unbounded retry allowance. Arguments are never coerced into another type.
+
+Current policy denial takes precedence over validation feedback. A corrected
+call creates a new operation and cannot reuse a previous approval. Cancellation
+and uncertain earlier effects stop ordered batch dispatch as before. Valid
+siblings execute once in their original order; their recorded results and the
+correlated errors are returned together. Unknown tools, duplicate IDs, malformed
+provider output, and changed backend requests still fail closed. The built-in
+`ask_user` retains its separate single-call validation and correlated reply flow.
+
+HTTP model errors retain the status and a fixed category in the private attempt
+diagnostic. Categories distinguish invalid requests, explicit context-limit
+codes, authentication, permissions, missing resources, request size, billing or
+quota, throttling, timeouts, conflicts, and provider unavailability. Classification
+reads at most 32 KiB plus one overflow byte. Malformed, oversized, or interrupted
+error bodies fall back to the status category. Only recognized structured codes
+are used; arbitrary message text, codes, headers, and bodies are never recorded.
+Context detection is diagnostic and does not claim universal provider coverage.
+
+Billing and quota errors can share HTTP 429 with temporary throttling; recognized
+quota codes therefore take precedence over the status fallback, following the
+[OpenAI error contract](https://developers.openai.com/api/docs/guides/error-codes).
+Native status mapping follows the
+[Anthropic error contract](https://platform.claude.com/docs/en/api/errors).
+No diagnostic permits an automatic retry, provider switch, budget refund, or
+silent context loss. Transport ambiguity still requires existing recovery controls.
+`tool_feedback` and `provider_failures` integration tests exercise these contracts;
+the PostgreSQL variant verifies correction across actual database reconnects.
+
+## Adoption audit
+
+The harness-oriented review covers the following mechanisms. Existing durable
+controls are reused where they already provide the required behavior.
+
+| Mechanism | Delivery and evidence |
+| --- | --- |
+| Replaceable loop and provider boundary | Pure `Backend`/`Engine`, portable checkpoints, `ModelExecutor`; engine and resume tests |
+| Steering at complete boundaries, follow-up after answers | Durable inbox with actor checks, receipts, queue fencing and cancellation; `inbox` tests and `smoke_inbox.py` |
+| Complete tool groups and context preparation | Whole-exchange archival, recent evidence, original task/latest direction and headroom; context and dependency-context tests |
+| Recoverable tool failures | Structured execution errors plus pre-dispatch argument correction; execution and tool-feedback tests |
+| Provider fidelity and diagnostics | Continuation text, signed thinking, opaque signatures, explicit reasoning, usage and bounded safe errors; chat, reasoning, token-usage and failure tests |
+| Cancellation barriers and durable task scheduling | Exact attempt fencing, no ambiguous replay, child cancellation and bounded Temporal concurrency; recovery and Temporal tests |
+| Tool discovery and lazy context | Pinned MCP schemas, frozen skills, paged package resources and scoped artifact retrieval; MCP, skill and context tests |
+| Extension authority | Versioned registered/HTTP/MCP tools with policy and approval checks; publication and execution tests |
+| Sessions and observation | Durable run/checkpoint history, event cursors, API/CLI/Python controls and independent task submission; reconnect and caller smokes |
+
+Token streaming would add provisional observations to a contract that currently
+records complete, durable outcomes. Live model mutation and transcript forks
+would need explicit execution-binding, lineage, budget and approval rules.
+Executable plugin reload requires a trusted host lifecycle; frozen capabilities
+remain the extension mechanism here. These features are unimplemented, rather
+than implied by the observation or session controls above. Terminal rendering,
+editor bindings, provider account login flows and document editors are outside
+the current harness interface. Real sandbox isolation acceptance remains open.
 
 ## Preview migration
 

@@ -1,5 +1,6 @@
 pub mod harness;
 pub mod models;
+mod provider_errors;
 pub mod reasoning;
 pub mod sandbox;
 pub mod tools;

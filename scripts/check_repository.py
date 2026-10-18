@@ -46,7 +46,15 @@ def check(root=ROOT):
     require({item['name'] for item in locked} == names, 'Cargo.lock must contain every workspace crate')
     require(all(item['version'] == version for item in locked), 'Workspace versions in Cargo.lock differ')
     release = json.loads((root / 'release-please-config.json').read_text())
-    lock_updates = [item for item in release['packages']['.']['extra-files']
+    release_package = release['packages']['.']
+    require(release_package.get('versioning') == 'always-bump-patch',
+            'Release automation must use patch version increments')
+    require(release.get('draft-pull-request') is True and
+            release_package.get('draft-pull-request', True) is True,
+            'Release automation must prepare draft pull requests')
+    require('release-as' not in release and 'release-as' not in release_package,
+            'Release automation must derive the next patch from the release manifest')
+    lock_updates = [item for item in release_package['extra-files']
                     if item.get('path') == 'Cargo.lock']
     require(len(lock_updates) == 1, 'Release automation must have one Cargo.lock updater')
     if len(lock_updates) == 1:

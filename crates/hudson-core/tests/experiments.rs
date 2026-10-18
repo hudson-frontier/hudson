@@ -24,6 +24,8 @@ enum Mode {
     Invalid,
     BadLesson,
     Unknown,
+    NullBaseline,
+    NullCandidate,
 }
 struct Fixture {
     endpoint: String,
@@ -166,12 +168,21 @@ fn response(request: &Value, mode: Mode) -> Value {
         .unwrap()
         .contains(&format!("{instructions}_SKILL")));
     let composed = instructions == "COMPOSED";
+    let regresses = matches!(mode, Mode::Regress | Mode::NullBaseline);
+    if user == "hidden-a"
+        && matches!(
+            (mode, composed),
+            (Mode::NullBaseline, false) | (Mode::NullCandidate, true)
+        )
+    {
+        return final_output(Value::Null);
+    }
     let answer = match user {
-        "hidden-a" if matches!(mode, Mode::Tie) || composed != matches!(mode, Mode::Regress) => 42,
+        "hidden-a" if matches!(mode, Mode::Tie) || composed != regresses => 42,
         "hidden-a" => 0,
-        "hidden-b" if matches!(mode, Mode::Regress) && !composed => 0,
+        "hidden-b" if regresses && !composed => 0,
         "hidden-b" => 7,
-        "hidden-c" if matches!(mode, Mode::Regress) && !composed => 0,
+        "hidden-c" if regresses && !composed => 0,
         "hidden-c" => 9,
         _ => 1,
     };
@@ -665,4 +676,39 @@ fn postgres_reconnect_preserves_stages_fingerprints_budget_and_format() {
     client.execute("UPDATE hudson_state SET state=jsonb_set(state,ARRAY['model_budgets'],'[]'::jsonb) WHERE namespace=$1", &[&namespace]).unwrap();
     assert!(Driver::resume(connect(), actor(), id).is_err());
     assert_eq!(fixture.requests.lock().unwrap().len(), 24);
+}
+
+#[test]
+#[ignore = "requires HUDSON_TEST_DATABASE in local PostgreSQL"]
+fn null_baseline_passes_and_candidate_improvements_survive_postgres_reload() {
+    let database = std::env::var("HUDSON_TEST_DATABASE").unwrap();
+    for mode in [Mode::NullBaseline, Mode::NullCandidate] {
+        let fixture = Fixture::new(mode);
+        let mut template = fixture.template();
+        template["output_schema"] = json!(true);
+        let mut specification = spec("null-comparison");
+        specification.validation[0].expected_schema =
+            json!({"const":null,"description":"PRIVATE_GRADING_CRITERIA"});
+        let namespace = format!("null-experiment-{}", uuid::Uuid::new_v4());
+        let connect = || Store::postgres_local("/tmp", &database, &namespace).unwrap();
+        let mut driver =
+            Driver::open(connect(), actor(), configuration(template), specification).unwrap();
+        let view = drive(&mut driver);
+        assert_eq!(view.status, Status::Completed);
+        let baseline_null = matches!(mode, Mode::NullBaseline);
+        assert_eq!(view.selected.version, if baseline_null { 1 } else { 4 });
+        assert_eq!(view.comparisons[0].baseline_passed, Some(baseline_null));
+        assert_eq!(view.comparisons[0].candidate_passed, Some(!baseline_null));
+        let run = if baseline_null {
+            view.comparisons[0].baseline_run
+        } else {
+            view.comparisons[0].candidate_run
+        };
+        assert_eq!(
+            connect().inspect(&actor(), run).unwrap().result,
+            Some(Value::Null)
+        );
+        assert_eq!(view.admitted_model_calls, 24);
+        assert_eq!(fixture.requests.lock().unwrap().len(), 24);
+    }
 }

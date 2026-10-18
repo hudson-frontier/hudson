@@ -266,6 +266,15 @@ impl Driver {
         };
         let view = runtime.tick(&self.actor, run_id)?;
         if view.status == RunStatus::Completed {
+            if view.result.is_none()
+                || !view
+                    .assessment
+                    .as_ref()
+                    .is_some_and(|assessment| assessment.passed)
+            {
+                self.fail(record, "completed trial is missing its verified result; no quality score or promotion was recorded")?;
+                return self.inspect();
+            }
             let valid = match stage {
                 Stage::Edit("reflect", _) => self.lesson(record, &view).map(|_| ()),
                 Stage::Edit(_, _) => {

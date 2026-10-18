@@ -90,6 +90,11 @@ pass. A tie or regression selects the baseline. Incomplete executions are
 unscored and cannot be selected as improvements. A completed experiment may
 legitimately retain the baseline; that is not an execution failure.
 
+Completed JSON `null` results remain valid after PostgreSQL reload. The public
+projection uses the exact verified-output digest to distinguish a real null
+completion from a missing result. Missing results without that receipt are not
+assigned a quality score and cannot support adoption.
+
 ## Durability, authority and bounds
 
 The manifest pins the exact template, probe, held-out suite, budget, actor and

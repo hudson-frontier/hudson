@@ -57,7 +57,11 @@ fn decode(row: postgres::Row) -> Result<Data> {
         return Err(Error::Unsupported("unknown PostgreSQL state schema".into()));
     }
     let value: serde_json::Value = row.try_get(1).map_err(database_error)?;
-    Ok(serde_json::from_value(value)?)
+    let mut data: Data = serde_json::from_value(value)?;
+    for run in data.runs.values_mut() {
+        run.restore_verified_null_result();
+    }
+    Ok(data)
 }
 impl Postgres {
     pub fn read<T>(&mut self, f: impl FnOnce(&Data) -> Result<T>) -> Result<T> {

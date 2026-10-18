@@ -2,6 +2,12 @@ use crate::config::Args;
 use hudson_core::{configured::Configuration, models::*, storage::Store};
 
 pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    if args.experiment.is_some()
+        || args.inspect_experiment.is_some()
+        || args.cancel_experiment.is_some()
+    {
+        return super::experiments::run(args);
+    }
     if super::control::execute(&args)? {
         return Ok(());
     }

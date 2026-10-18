@@ -17,6 +17,11 @@ pub struct Runtime<B, M, T> {
     pub(crate) tools: T,
 }
 
+pub(crate) enum SubmissionScope {
+    Scheduled(Option<crate::scheduling::ScheduleTarget>),
+    Experiment(crate::experiments::RunScope),
+}
+
 impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
     pub fn new(store: MemoryStore, backend: B, model: M, tools: T) -> Self {
         Self {
@@ -62,6 +67,29 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         goal: Option<Goal>,
         schedule: Option<crate::scheduling::ScheduleTarget>,
     ) -> Result<Uuid> {
+        self.submit_scoped(
+            actor,
+            agent_ref,
+            input,
+            request_key,
+            goal,
+            SubmissionScope::Scheduled(schedule),
+        )
+    }
+
+    pub(crate) fn submit_scoped(
+        &self,
+        actor: &Actor,
+        agent_ref: VersionRef,
+        input: Value,
+        request_key: Option<String>,
+        goal: Option<Goal>,
+        scope: SubmissionScope,
+    ) -> Result<Uuid> {
+        let (schedule, experiment) = match scope {
+            SubmissionScope::Scheduled(schedule) => (schedule, None),
+            SubmissionScope::Experiment(scope) => (None, Some(scope)),
+        };
         if let Some(target) = &schedule {
             target.validate()?;
         }
@@ -90,10 +118,21 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             None => definitions::digest(&(agent_ref.clone(), &input))?,
         };
         self.store.transact(|d| {
+            if let Some(scope) = &experiment {
+                crate::experiments::check_scope(d, actor, scope)?;
+            }
             let key = request_key
                 .as_ref()
                 .map(|k| (actor.workspace_id.clone(), actor.id.clone(), k.clone()));
             if let Some(id) = key.as_ref().and_then(|k| d.submissions.get(k)) {
+                if experiment.as_ref().is_some_and(|scope| {
+                    d.experiment_runs.get(id) != Some(&scope.experiment)
+                        || d.experiments[&scope.experiment].runs.get(&scope.index) != Some(id)
+                }) {
+                    return Err(Error::Conflict(
+                        "submission key belongs to another run scope".into(),
+                    ));
+                }
                 if d.runs[id].input_digest != input_digest
                     || d.runs[id].model_budget != self.model.budget_binding()
                     || d.schedule_requests.get(id).map(|r| &r.target) != schedule.as_ref()
@@ -139,6 +178,9 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 revision: 0,
             };
             d.runs.insert(id, run);
+            if let Some(scope) = &experiment {
+                crate::experiments::attach_run(d, scope, id)?;
+            }
             if let Some(target) = schedule {
                 d.schedule_requests.insert(
                     id,

@@ -43,6 +43,7 @@ pub mod subagents;
 pub mod configured;
 
 pub mod evaluation;
+pub mod experiments;
 
 pub mod context;
 pub mod inbox;

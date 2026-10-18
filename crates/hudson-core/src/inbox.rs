@@ -67,6 +67,11 @@ impl Store {
         }
         self.transact(|data| {
             let run = data.run(actor, run_id)?;
+            if data.experiment_runs.contains_key(&run_id) {
+                return Err(Error::Unsupported(
+                    "experiment stage inputs are frozen; cancel or start another experiment".into(),
+                ));
+            }
             if run.state.backend != "hudson" || run.state.backend_version != 1 {
                 return Err(Error::Unsupported(
                     "queued input requires the Hudson agent loop".into(),

@@ -106,8 +106,35 @@ pub struct RunView {
     pub usage: Usage,
     pub assessment: Option<Assessment>,
 }
+impl Run {
+    fn has_verified_null_result(&self) -> bool {
+        self.status == RunStatus::Completed
+            && self
+                .assessment
+                .as_ref()
+                .is_some_and(|assessment| assessment.passed)
+            && self
+                .verified_candidate_digest
+                .as_deref()
+                .is_some_and(|expected| {
+                    crate::definitions::digest(&Value::Null).is_ok_and(|actual| actual == expected)
+                })
+    }
+
+    pub(crate) fn restore_verified_null_result(&mut self) {
+        if self.result.is_none() && self.has_verified_null_result() {
+            self.result = Some(Value::Null);
+        }
+    }
+}
 impl From<&Run> for RunView {
     fn from(run: &Run) -> Self {
+        // JSONB encodes Some(null) and None identically. A completed run's exact
+        // verified-output receipt disambiguates null without guessing a result.
+        let result = run
+            .result
+            .clone()
+            .or_else(|| run.has_verified_null_result().then_some(Value::Null));
         Self {
             agent_ref: run.agent_ref.clone(),
             id: run.meta.id,
@@ -116,7 +143,7 @@ impl From<&Run> for RunView {
             status: run.status,
             wait: run.wait.clone(),
             reason: run.reason.clone(),
-            result: run.result.clone(),
+            result,
             usage: run.usage.clone(),
             assessment: run.assessment.clone(),
         }

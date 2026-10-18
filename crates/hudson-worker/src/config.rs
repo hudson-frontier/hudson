@@ -82,11 +82,57 @@ pub struct Args {
     /// Evaluate a candidate configuration against the same cases after the baseline.
     #[arg(long, requires = "evaluate")]
     pub compare_config: Option<std::path::PathBuf>,
+    /// Run or resume one bounded offline harness experiment from JSON.
+    #[arg(
+        long,
+        requires = "config",
+        conflicts_with = "request_key",
+        group = "action"
+    )]
+    pub experiment: Option<std::path::PathBuf>,
+    /// Validate an experiment plan without database, model or tool IO.
+    #[arg(long, requires = "experiment")]
+    pub experiment_plan: bool,
+    /// Limit this invocation to N durable ticks; resume with the same spec.
+    #[arg(long, requires = "experiment", conflicts_with = "experiment_plan", value_parser = clap::value_parser!(u32).range(1..=16384))]
+    pub experiment_ticks: Option<u32>,
+    /// Cancel an experiment independently of its config file or fixture endpoints.
+    #[arg(long, requires = "database", group = "action")]
+    pub cancel_experiment: Option<uuid::Uuid>,
+    /// Inspect an existing experiment without loading providers or configuration.
+    #[arg(long, requires = "database", group = "action")]
+    pub inspect_experiment: Option<uuid::Uuid>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn experiments_require_one_action_and_explicit_bounded_tick_batches() {
+        let base = [
+            "worker",
+            "--config",
+            "agent.json",
+            "--experiment",
+            "experiment.json",
+        ];
+        assert!(Args::try_parse_from(base.into_iter().chain(["--experiment-plan"])).is_ok());
+        assert!(Args::try_parse_from(base.into_iter().chain(["--experiment-ticks", "1"])).is_ok());
+        assert!(Args::try_parse_from(base.into_iter().chain(["--experiment-ticks", "0"])).is_err());
+        assert!(
+            Args::try_parse_from(base.into_iter().chain(["--task", "another action"])).is_err()
+        );
+        assert!(Args::try_parse_from(["worker", "--experiment", "experiment.json"]).is_err());
+        assert!(Args::try_parse_from([
+            "worker",
+            "--database",
+            "test",
+            "--cancel-experiment",
+            "00000000-0000-0000-0000-000000000001"
+        ])
+        .is_ok());
+    }
 
     #[test]
     fn reply_requires_storage_identity_and_exactly_one_value() {

@@ -321,6 +321,11 @@ SSE/WebSocket streaming, public authentication, and multi-tenant hosting are abs
 `--compare-config`. Cases use normal runtime controls, retain their run identities,
 and assess expected outputs separately from runtime completion. Use isolated tools.
 
+[Offline experiments](experiments.md) add an opt-in, one-step
+propose/probe/compose workflow with frozen controls, a shared admission budget,
+held-out selection, scoped lessons and PostgreSQL resume. Use `--experiment-plan`
+before dispatching fixture work.
+
 A custom `Backend` proposes actions through the same core checks. `Engine` validates
 backend/schema compatibility and advancing checkpoints. Custom `ModelExecutor` and
 `ToolExecutor` implementations own IO. No loop callback bypasses runtime authority.

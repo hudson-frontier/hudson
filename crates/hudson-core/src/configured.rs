@@ -11,6 +11,7 @@ use crate::{
 };
 use hudson_harness::AgentLoop;
 use serde::{Deserialize, Serialize};
+mod experiments;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -302,6 +303,7 @@ impl ScheduledTree {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BuildMode {
     Local,
+    Experiment,
     Temporal,
     Admission,
 }
@@ -326,13 +328,20 @@ fn build(
     children: &mut ChildRuntimes,
     mode: BuildMode,
 ) -> Result<(AgentRuntime, VersionRef), Box<dyn std::error::Error>> {
-    let deferred = mode != BuildMode::Local;
+    let deferred = matches!(mode, BuildMode::Temporal | BuildMode::Admission);
     let admission = mode == BuildMode::Admission;
     let credential = |name: &str, required: bool| {
-        if admission {
+        if admission || mode == BuildMode::Experiment {
             Ok(None)
         } else {
             model_key(name, required)
+        }
+    };
+    let chat_model = |url: &str, key: Option<String>, max_tokens| {
+        if mode == BuildMode::Experiment {
+            ChatModel::fixture(url, max_tokens)
+        } else {
+            ChatModel::new(url, key, max_tokens)
         }
     };
     let selected_model = selected_model(&definition)?.to_owned();
@@ -347,6 +356,11 @@ fn build(
         Some(reasoning) => crate::definitions::digest(&(&transport_fingerprint, reasoning))?,
         None => transport_fingerprint,
     };
+    let transport_fingerprint = if mode == BuildMode::Experiment {
+        crate::definitions::digest(&(&transport_fingerprint, "offline-fixture-v1"))?
+    } else {
+        transport_fingerprint
+    };
     let model: Box<dyn ModelExecutor> = match definition.provider.as_str() {
         "" | "openai" => {
             let key = credential(
@@ -357,7 +371,7 @@ fn build(
                 definition.api_key_env.is_some() || definition.endpoint == endpoint(),
             )?;
             Box::new(
-                ChatModel::new(&definition.endpoint, key, definition.max_output_tokens)?
+                chat_model(&definition.endpoint, key, definition.max_output_tokens)?
                     .with_legacy_token_limit(definition.legacy_token_limit)
                     .with_reasoning(definition.reasoning.clone())?,
             )
@@ -405,7 +419,7 @@ fn build(
                 .transpose()?
                 .flatten();
             Box::new(
-                ChatModel::new(url, key, definition.max_output_tokens)?
+                chat_model(url, key, definition.max_output_tokens)?
                     .with_legacy_token_limit(true)
                     .with_reasoning(definition.reasoning.clone())?,
             )
@@ -589,7 +603,11 @@ fn build(
             require_approval: false,
         },
     )?;
-    let mut executor = HttpTools::new(registry)?;
+    let mut executor = if mode == BuildMode::Experiment {
+        HttpTools::fixture(registry)?
+    } else {
+        HttpTools::new(registry)?
+    };
     for spec in definition.http_tools {
         let token = if admission {
             None

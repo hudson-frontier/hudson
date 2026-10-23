@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 hudson-core.workspace = true
-sandbox-client = { git = "https://github.com/hudson-infinity/hudson-sandbox.git", rev = "aac70c726e542ad4701dda64931d62135beb7da0" }
+sandbox-client = { git = "https://github.com/hudson-frontier/hudsonbox.git", rev = "df4b53cb8e3e22bd808b0e61f25ac43f3eaeb976" }
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

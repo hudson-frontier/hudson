@@ -3,6 +3,8 @@
 Tracked by Hudson #17 and hudson-sandbox #112. Public HTTP schema baseline:
 `hudson-infinity/hudson-sandbox` commit `aa5cef5c51b7c735e6ede82d2c4f6e90f4f4f119`,
 `api/openapi.json` and generated `crates/sandbox-client/src/models.rs`.
+The transport's separately pinned SDK revision is recorded in its
+[README](../crates/hudson-sandbox-transport/README.md).
 
 Durable request preparation checks the run's payload byte limit before JSON
 validation. Invalid or oversized bodies do not bind an idempotency key or consume
@@ -54,16 +56,25 @@ execute receipt is command evidence, not proof of agent task success. Retrieve b
 outputs on the same operation, preserve truncation/simulated/guest-reported evidence,
 and authorize result ownership using the run's workspace.
 
+Owned receipt reads pass the caller's 1–65,536-byte limit to the SDK before JSON
+decoding. Whitespace and additive fields count toward that wire-body limit even
+when the typed receipt would omit them. The observer independently checks the
+serialized typed response before releasing result/error values. Oversized success
+bodies return an SDK protocol error and leave completion unset on the original
+Store binding; an oversized problem retains its HTTP status without body fields.
+
 Cancellation must inspect both its own receipt and target execution evidence; an
 accepted cancel is not termination proof. Destroy follows cancellation/reconciliation
 and retains its own stable key and receipt until cleanup is confirmed. Neither retry
 nor timeout may silently create a new sandbox or host process.
 
-Remaining integration: durable store/activity wiring, pinned SDK dependency, secret
-redaction/auth setup, explicit operator registration and enforced policy checks,
+Remaining effectful integration: runtime activity dispatch, trusted worker auth
+configuration, explicit operator registration and enforced policy checks,
 output/result attachment, cancellation targets, cleanup evidence, and local mock
-acceptance followed by real Linux/KVM validation. The JSON roundtrip tests represent serialized recovery plans, not implemented durable storage. The unit tests cover restart,
-lost response, mismatched receipts and expired/unknown status without VM claims.
+acceptance followed by real Linux/KVM validation. The Store and pinned SDK receipt
+foundation is described below. The decision primitive's JSON roundtrip tests cover
+serialized recovery plans; its restart, lost-response, mismatched-receipt and
+expired/unknown tests do not establish VM execution.
 
 The receipt's omitted `response_expired` means false in the pinned OpenAPI schema;
 this matches the generated SDK default. The receipt cannot bind a Hudson workspace
@@ -105,6 +116,7 @@ fingerprint of canonical operator-bound origin plus project, excluding the token
 The trusted worker constructor must verify and derive it; an agent-supplied label
 is insufficient. The store validates its encoding and immutability, not its
 provenance. Keys are unique across phases and Hudson workspaces sharing that
-backend profile. A future transport must verify that the actual SDK client origin
-and project produce the stored fingerprint before sending or polling. The current
-SDK does not expose that identity, so this remains an explicit live transport gate.
+backend profile. The receipt observer verifies that the constructed SDK client's
+origin and declared project produce the stored fingerprint before polling. This
+binds trusted configuration; backend bearer checks still establish actual project
+authorization. Future mutation dispatch must preserve the same profile check.

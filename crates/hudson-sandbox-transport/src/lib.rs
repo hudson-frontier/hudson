@@ -200,9 +200,12 @@ impl QualificationObserver {
         };
         let operation = self
             .client
-            .get_operation(GetOperation {
-                operation_id: &operation_id,
-            })
+            .get_operation_bounded(
+                GetOperation {
+                    operation_id: &operation_id,
+                },
+                max_payload_bytes,
+            )
             .await?;
         if serde_json::to_vec(&operation)
             .map_err(|_| Error::Request)?
@@ -259,9 +262,15 @@ mod tests {
             cwd: "/workspace".into(),
             deadline_unix_ms: 123456789,
             output_limit: 4096,
+            expected_generation: None,
         });
         let body = request.canonical_json().unwrap();
-        assert!(body.contains("123456789"));
+        // The upgraded SDK's optional generation precondition must not rewrite
+        // an already persisted request that omitted it.
+        assert_eq!(
+            body,
+            r#"{"argv":["/approved/agent"],"env":{},"cwd":"/workspace","deadline_unix_ms":123456789,"output_limit":4096}"#
+        );
         assert_eq!(
             PreparedBody::from_canonical_json(Step::Execute, &body)
                 .unwrap()

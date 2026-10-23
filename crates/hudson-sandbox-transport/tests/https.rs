@@ -82,6 +82,7 @@ async fn sdk_sends_authenticated_canonical_bodies_and_parses_admission() {
                 cwd: "/workspace".into(),
                 deadline_unix_ms: 123456789,
                 output_limit: 4096,
+                expected_generation: None,
             }),
             _ => PreparedBody::Destroy(DestroyRequest {
                 correlation_id: Some("hudson-fence".into()),

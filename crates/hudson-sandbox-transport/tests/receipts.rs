@@ -133,8 +133,23 @@ async fn expired_http_and_oversized_results_are_not_completion() {
     assert!(matches!(probe(410,serde_json::json!({"status":410,"title":"expired","code":"response_expired","operation_id":"op_original"}),4096).await,Err(Error::Sdk(sandbox_client::Error::Http {status:410,..}))));
     assert!(matches!(
         probe(200, receipt("succeeded"), 1).await,
-        Err(Error::Oversized)
+        Err(Error::Sdk(sandbox_client::Error::Protocol))
     ));
+}
+
+#[tokio::test]
+async fn receipt_wire_bound_includes_additive_fields_before_deserialization() {
+    let mut body = receipt("succeeded");
+    body["future_field"] = "x".repeat(8192).into();
+    let observed = probe(200, body, 4096).await;
+    assert!(
+        matches!(&observed, Err(Error::Sdk(sandbox_client::Error::Protocol))),
+        "expected wire-limit rejection, got {}",
+        match &observed {
+            Ok(value) => format!("decision {:?}", value.decision),
+            Err(error) => error.to_string(),
+        }
+    );
 }
 
 #[tokio::test]
@@ -159,6 +174,7 @@ async fn authoritative_observation_and_unbound_plans_fail_before_network() {
             cwd: "/workspace".into(),
             deadline_unix_ms: 123456789,
             output_limit: 4096,
+            expected_generation: None,
         });
     let initial = observer
         .prepare_request(&store, &actor, fence.clone(), pending, &body)
@@ -178,7 +194,13 @@ async fn authoritative_observation_and_unbound_plans_fail_before_network() {
 
 #[tokio::test]
 async fn verified_profile_owned_receipts_record_only_matching_completion() {
-    for mode in ["succeeded", "unknown", "mismatch", "unauthorized"] {
+    for mode in [
+        "succeeded",
+        "unknown",
+        "mismatch",
+        "unauthorized",
+        "oversized_wire",
+    ] {
         let mut response = receipt(if mode == "unknown" {
             "unknown"
         } else {
@@ -186,6 +208,9 @@ async fn verified_profile_owned_receipts_record_only_matching_completion() {
         });
         if mode == "mismatch" {
             response["sandbox_id"] = "sb_other".into();
+        }
+        if mode == "oversized_wire" {
+            response["future_field"] = "x".repeat(8192).into();
         }
         let status = if mode == "unauthorized" { 401 } else { 200 };
         if status == 401 {
@@ -204,6 +229,7 @@ async fn verified_profile_owned_receipts_record_only_matching_completion() {
                     cwd: "/workspace".into(),
                     deadline_unix_ms: 123456789,
                     output_limit: 4096,
+                    expected_generation: None,
                 },
             );
             observer
@@ -239,6 +265,7 @@ async fn verified_profile_owned_receipts_record_only_matching_completion() {
             } else {
                 assert!(observed.is_err());
                 assert!(saved.terminal.is_none());
+                assert_eq!(saved.pending.operation_id.as_deref(), Some("op_original"));
             }
         })
         .await;
@@ -283,6 +310,7 @@ async fn profile_drift_fences_before_get_and_rotation_preserves_declaration() {
             cwd: "/workspace".into(),
             deadline_unix_ms: 123456789,
             output_limit: 4096,
+            expected_generation: None,
         });
     original
         .prepare_request(&store, &actor, fence.clone(), pending, &body)

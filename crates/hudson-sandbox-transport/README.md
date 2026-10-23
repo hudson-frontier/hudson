@@ -1,8 +1,9 @@
 # Public sandbox SDK transport foundation
 
-Contributes to Hudson #17 using `sandbox-client` 0.0.0 pinned to public sandbox
-merge commit `aac70c726e542ad4701dda64931d62135beb7da0` (upstream PR122 was
-independently merged with passing checks). This crate does not dispatch mutations, enable Sandbox
+Contributes to Hudson #17 using `sandbox-client` 0.0.0 pinned to Hudsonbox
+merge commit `df4b53cb8e3e22bd808b0e61f25ac43f3eaeb976` from
+[PR161](https://github.com/hudson-frontier/hudsonbox/pull/161), independently
+merged with passing checks. This crate does not dispatch mutations, enable Sandbox
 tools, execute a VM, or attach agent task results to Hudson runs.
 
 `PreparedBody` serializes the SDK's typed create/execute/destroy models.
@@ -12,6 +13,10 @@ intent. `from_canonical_json()` rejects serialization changes, including default
 whitespace, field order, and unknown fields. Absolute deadlines are preserved.
 Command/image/policy selection still needs an operator-approved mapping; never
 infer it from a package name.
+
+The SDK's optional generation precondition remains omitted for legacy commands.
+A compatibility regression verifies their exact persisted canonical bytes across
+the SDK upgrade.
 
 The profile fingerprint is **lowercase hexadecimal SHA256 of the UTF-8 bytes from
 `serde_json::to_vec(&[client.identity().origin, client.identity().project_id])`**.
@@ -26,7 +31,12 @@ that fingerprint **before GET**, polls the original operation exactly once, and
 records a matching receipt under existing Store ownership, immutable-request and
 current-attempt checks. It does not wait, resubmit, cancel, or destroy. Result and
 error payloads stay bounded (caller limit, maximum 64 KiB), sensitive and workload
-controlled. Types carrying them intentionally lack Debug. Unknown/expired or
+controlled. The SDK applies that limit to response bytes before JSON decoding,
+including whitespace and additive fields that its typed model ignores. The
+observer also checks the serialized typed response before releasing payloads.
+An oversized success response is an SDK protocol error and cannot record Store
+completion; an oversized problem retains its HTTP status without body fields.
+Types carrying payloads intentionally lack Debug. Unknown/expired or
 mismatched operation/sandbox/kind require reconciliation without writing completion.
 A successful execute receipt is operation evidence, not agent task success.
 

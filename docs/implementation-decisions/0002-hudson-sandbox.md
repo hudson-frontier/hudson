@@ -6,7 +6,7 @@
 
 ## Decision
 
-Use [hudson-infinity/hudson-sandbox](https://github.com/hudson-infinity/hudson-sandbox) as the separate execution backend for customer code hosted by Hudson.
+Use [Hudsonbox](https://github.com/hudson-frontier/hudsonbox) as the separate execution backend for customer code hosted by Hudson.
 
 External means a separate project in the same organization, accessed through an explicit service contract. It does not mean a required third-party hosted service. Hudson's core product remains in this monorepo, with an adapter connecting agent operations to the sandbox backend.
 
@@ -22,8 +22,10 @@ The current protocol foundation persists exact request bytes, stable mutation
 keys, backend profile identity, admitted-attempt fences and original-operation
 receipts. The transport crate uses the public v1 SDK and verifies the constructed
 client's canonical origin/project declaration before owned receipt observation.
-That identity accessor is pinned to independently merged SDK commit
-`aac70c726e542ad4701dda64931d62135beb7da0`. The
+Receipt observation also passes the caller's byte limit to the SDK before JSON
+decoding, so ignored fields cannot bypass it. These SDK interfaces are pinned to
+independently merged Hudsonbox commit
+`df4b53cb8e3e22bd808b0e61f25ac43f3eaeb976`. The
 [adapter contract](../sandbox-adapter-contract.md) records the ownership and
 recovery mappings. These protocol checks do not enable Runtime dispatch or
 establish guest isolation.

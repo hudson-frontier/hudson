@@ -273,6 +273,8 @@ when the run completes, fails, or waits. `/reply QUESTION_ID answer` responds to
 user-input wait; `/approve OPERATION_UUID` and `/deny OPERATION_UUID` explicitly
 decide approvals. `/status`, `/resume`, `/cancel`, `/open RUN_UUID`, and `/follow`
 inspect/control or reconnect to the current run. `/help` lists the controls.
+Server-supplied display fields escape line breaks, tabs, terminal controls, and
+Unicode direction controls so each field stays within its labeled output line.
 Reconciliation waits still require the existing evidence-based operator recovery
 workflow. Mutation failures are never automatically replayed; retain the printed
 request key and use the existing `start` or `reply` command with the same input/key

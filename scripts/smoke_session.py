@@ -36,10 +36,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         requests.append((self.path, None, self.headers.get('Authorization')))
         if '/events?' in self.path:
             if 'after=0&' in self.path:
-                self.send([{'sequence':1,'run_id':RUN,'event_type':'run_waiting','payload':{'message':'\x1b]52;c;secret\x07'}}])
+                self.send([{'sequence':1,'run_id':RUN,'event_type':'run_waiting\nFORGED_EVENT_PROMPT\t\u061c\u200e\u200f\u202e\u2066\u2028\u2029','payload':{'message':'\x1b]52;c;secret\x07'}}])
             else: self.send([])
         else:
-            self.send({'id':RUN,'status':status,'wait':{'type':'user_input','question_id':7,'prompt':'Which city?'} if status == 'waiting' else None,'result':{'city':'Boston'} if status == 'completed' else None})
+            self.send({'id':RUN,'status':status,'reason':'reason\nFORGED_REASON_PROMPT\t\u061c\u200e\u200f\u202e\u2066\u2028\u2029','wait':{'type':'user_input','question_id':7,'prompt':'Which city?'} if status == 'waiting' else None,'result':{'city':'Boston'} if status == 'completed' else None})
 server = http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 master, slave = pty.openpty()
@@ -64,6 +64,12 @@ try:
     send('Please find a city')
     assert b'Which city?' in output and b'\\u001b' in output, output.decode(errors='replace')
     assert b'\x1b]52' not in output
+    assert b'\r\nFORGED_EVENT_PROMPT' not in output
+    assert b'\r\nFORGED_REASON_PROMPT' not in output
+    assert b'run_waiting\\u{a}FORGED_EVENT_PROMPT\\u{9}' in output
+    assert b'Reason: reason\\u{a}FORGED_REASON_PROMPT\\u{9}' in output
+    for control in '\u061c\u200e\u200f\u202e\u2066\u2028\u2029':
+        assert control.encode() not in output
     send('/reply 7 Boston')
     assert b'Result:' in output and b'Boston' in output
     send('Rejected task')

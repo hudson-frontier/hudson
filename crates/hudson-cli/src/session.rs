@@ -6,12 +6,12 @@ use std::io::{self, BufRead, IsTerminal, Read, Write};
 
 type Error = Box<dyn std::error::Error>;
 
-/// Escape terminal controls from server/model text, including ANSI and bidi controls.
+/// Keep untrusted display fields on one line, including ANSI and bidi controls.
 fn safe(text: &str) -> String {
     text.chars()
         .flat_map(|c| {
-            if (c.is_control() && c != '\n' && c != '\t')
-                || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            if c.is_control()
+                || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
             {
                 c.escape_unicode().collect::<Vec<_>>()
             } else {
@@ -249,7 +249,7 @@ mod tests {
     use super::*;
     #[test]
     fn escapes_terminal_injection_and_bidi_but_retains_readable_text() {
-        assert_eq!(safe("hello\n\tworld"), "hello\n\tworld");
+        assert_eq!(safe("hello\n\tworld"), "hello\\u{a}\\u{9}world");
         assert_eq!(
             safe("\x1b]52;c;secret\x07\r\u{202e}x"),
             "\\u{1b}]52;c;secret\\u{7}\\u{d}\\u{202e}x"

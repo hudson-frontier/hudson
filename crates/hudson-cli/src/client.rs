@@ -211,11 +211,56 @@ pub(crate) fn definition_name(name: &str) -> Result<&str, Box<dyn std::error::Er
     }
     Ok(name)
 }
+fn regular_input(metadata: &std::fs::Metadata) -> bool {
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+fn input_file(path: &std::path::Path) -> Result<std::fs::File, Box<dyn std::error::Error>> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(
+            (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        if !regular_input(&std::fs::symlink_metadata(path)?) {
+            return Err(
+                "JSON input must be a regular file without symbolic links or reparse points".into(),
+            );
+        }
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    if !regular_input(&file.metadata()?) {
+        return Err(
+            "JSON input must be a regular file without symbolic links or reparse points".into(),
+        );
+    }
+    Ok(file)
+}
+
 fn read_json(path: &std::path::Path) -> Result<Value, Box<dyn std::error::Error>> {
     let reader: Box<dyn Read> = if path == std::path::Path::new("-") {
         Box::new(std::io::stdin())
     } else {
-        Box::new(std::fs::File::open(path)?)
+        Box::new(input_file(path)?)
     };
     let mut bytes = Vec::new();
     reader.take(64 * 1024 + 1).read_to_end(&mut bytes)?;

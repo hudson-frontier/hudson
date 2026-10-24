@@ -1220,8 +1220,10 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "reqwest 0.12.28",
+ "rustix",
  "serde_json",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -319,6 +319,10 @@ locally. `resume RUN_UUID` continues a saved run, while `get`, `events`, `operat
 `approve [--deny]`, and `cancel` expose its ordinary controls. Put `--url` before
 the command to select another server.
 
+HTTP CLI file inputs must be regular files. Symbolic links, Windows reparse points,
+and special files are rejected before any request. Use `--input-file -` or a
+publication file argument of `-` to select stdin explicitly; the 64 KiB limit remains.
+
 Ordinary CLI responses share the session/follow limit of 8 MiB and must be valid
 JSON before output begins. Pretty formatting writes through a buffer instead of
 allocating the entire expanded response. A response or output failure never

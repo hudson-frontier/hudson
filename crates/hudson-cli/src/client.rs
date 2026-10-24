@@ -10,6 +10,7 @@ fn segment(id: &str) -> Result<&str, Box<dyn std::error::Error>> {
 }
 pub fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let mut headers = reqwest::header::HeaderMap::new();
+    let mut direct_loopback = false;
     if let Some(name) = &args.api_token_env {
         let url = reqwest::Url::parse(&args.url)?;
         let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
@@ -24,6 +25,7 @@ pub fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                     .into(),
             );
         }
+        direct_loopback = url.scheme() == "http" && local;
         let token = std::env::var(name).map_err(|_| "API token environment variable is missing")?;
         if token.is_empty() {
             return Err("API token environment variable is empty".into());
@@ -32,11 +34,16 @@ pub fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         value.set_sensitive(true);
         headers.insert(reqwest::header::AUTHORIZATION, value);
     }
-    let client = reqwest::blocking::Client::builder()
+    let builder = reqwest::blocking::Client::builder()
         .default_headers(headers)
         .timeout(std::time::Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+        .redirect(reqwest::redirect::Policy::none());
+    let client = if direct_loopback {
+        builder.no_proxy()
+    } else {
+        builder
+    }
+    .build()?;
     let base = args.url.trim_end_matches('/');
     let response = match args.command.unwrap_or(Command::Session(Default::default())) {
         Command::Session(session) => return crate::session::run(&client, base, session),

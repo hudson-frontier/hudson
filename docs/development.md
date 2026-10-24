@@ -320,6 +320,8 @@ Ordinary CLI responses share the session/follow limit of 8 MiB and must be valid
 JSON before output begins. Pretty formatting writes through a buffer instead of
 allocating the entire expanded response. A response or output failure never
 automatically retries a mutation.
+When `--api-token-env` is set, loopback HTTP connects directly instead of using
+environment proxies. HTTPS retains its normal proxy configuration.
 
 The fixture preview remains `hudson-server --demo`; the explicit fixture input is
 `hudson-cli start --order 123 [--refund]`. Events are cursor-polled;

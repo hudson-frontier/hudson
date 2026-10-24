@@ -6,8 +6,13 @@ use std::{collections::BTreeMap, io::Read, time::Duration};
 pub struct HttpTools {
     pub registered: ToolRegistry,
     client: reqwest::blocking::Client,
-    bindings: BTreeMap<String, Option<String>>,
+    local_client: Option<reqwest::blocking::Client>,
+    bindings: BTreeMap<String, HttpBinding>,
     fixture_only: bool,
+}
+struct HttpBinding {
+    bearer: Option<String>,
+    direct: bool,
 }
 impl HttpTools {
     pub fn new(registered: ToolRegistry) -> Result<Self> {
@@ -17,6 +22,15 @@ impl HttpTools {
         Self::build(registered, true)
     }
     fn build(registered: ToolRegistry, no_proxy: bool) -> Result<Self> {
+        Ok(Self {
+            registered,
+            client: Self::http_client(no_proxy)?,
+            local_client: None,
+            bindings: BTreeMap::new(),
+            fixture_only: no_proxy,
+        })
+    }
+    fn http_client(no_proxy: bool) -> Result<reqwest::blocking::Client> {
         let builder = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
@@ -26,15 +40,9 @@ impl HttpTools {
         } else {
             builder
         };
-        let client = builder
+        builder
             .build()
-            .map_err(|_| Error::Invalid("cannot initialize HTTP tool client".into()))?;
-        Ok(Self {
-            registered,
-            client,
-            bindings: BTreeMap::new(),
-            fixture_only: no_proxy,
-        })
+            .map_err(|_| Error::Invalid("cannot initialize HTTP tool client".into()))
     }
     pub fn bind(&mut self, endpoint: &str, bearer_token: Option<String>) -> Result<()> {
         let url = reqwest::Url::parse(endpoint)
@@ -56,7 +64,18 @@ impl HttpTools {
         if self.bindings.contains_key(endpoint) {
             return Err(Error::Conflict("HTTP endpoint already bound".into()));
         }
-        self.bindings.insert(endpoint.into(), bearer_token);
+        let direct = !self.fixture_only && url.scheme() == "http" && local;
+        if direct && self.local_client.is_none() {
+            // All local bindings share one direct client; HTTPS keeps the normal client.
+            self.local_client = Some(Self::http_client(true)?);
+        }
+        self.bindings.insert(
+            endpoint.into(),
+            HttpBinding {
+                bearer: bearer_token,
+                direct,
+            },
+        );
         Ok(())
     }
 }
@@ -68,16 +87,22 @@ impl ToolExecutor for HttpTools {
         let Execution::Http { endpoint } = &invocation.tool.execution else {
             return self.registered.execute(invocation);
         };
-        let token = self
+        let binding = self
             .bindings
             .get(endpoint)
             .ok_or_else(|| ExecutionError::Failed("HTTP tool endpoint is not bound".into()))?;
-        let mut request = self
-            .client
+        let client = if binding.direct {
+            self.local_client.as_ref().ok_or_else(|| {
+                ExecutionError::Failed("HTTP tool transport is not initialized".into())
+            })?
+        } else {
+            &self.client
+        };
+        let mut request = client
             .post(endpoint)
             .header("Idempotency-Key", invocation.operation_id.to_string())
             .json(invocation.arguments);
-        if let Some(token) = token {
+        if let Some(token) = &binding.bearer {
             request = request.bearer_auth(token);
         }
         let uncertain = || {

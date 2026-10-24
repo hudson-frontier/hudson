@@ -1,6 +1,6 @@
 use crate::commands::{Args, Command, Start};
 use serde_json::{json, Value};
-use std::io::Read;
+use std::io::{BufWriter, Read, Write};
 
 fn segment(id: &str) -> Result<&str, Box<dyn std::error::Error>> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
@@ -137,8 +137,16 @@ pub fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .send()?,
     };
     let status = response.status();
-    let body: Value = response.json()?;
-    println!("{}", serde_json::to_string_pretty(&body)?);
+    let mut bytes = Vec::new();
+    response.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err("response exceeds 8 MiB".into());
+    }
+    let body: Value = serde_json::from_slice(&bytes)?;
+    let mut output = BufWriter::new(std::io::stdout().lock());
+    serde_json::to_writer_pretty(&mut output, &body).map_err(|_| "cannot write response output")?;
+    writeln!(output).map_err(|_| "cannot write response output")?;
+    output.flush().map_err(|_| "cannot flush response output")?;
     if !status.is_success() {
         return Err(format!("Hudson returned {status}").into());
     }

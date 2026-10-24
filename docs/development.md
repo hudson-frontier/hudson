@@ -311,6 +311,11 @@ locally. `resume RUN_UUID` continues a saved run, while `get`, `events`, `operat
 `approve [--deny]`, and `cancel` expose its ordinary controls. Put `--url` before
 the command to select another server.
 
+Ordinary CLI responses share the session/follow limit of 8 MiB and must be valid
+JSON before output begins. Pretty formatting writes through a buffer instead of
+allocating the entire expanded response. A response or output failure never
+automatically retries a mutation.
+
 The fixture preview remains `hudson-server --demo`; the explicit fixture input is
 `hudson-cli start --order 123 [--refund]`. Events are cursor-polled;
 SSE/WebSocket streaming, public authentication, and multi-tenant hosting are absent.

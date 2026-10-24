@@ -27,7 +27,35 @@ fn schema_allowed(value: &Value) -> Result<()> {
                         "external schema references are disabled".into(),
                     ));
                 }
-                schema_allowed(value)?;
+                // Traverse schemas, rather than literal instance values or annotations
+                // that can legitimately contain keys such as `$ref`.
+                match key.as_str() {
+                    "properties" | "patternProperties" | "definitions" | "$defs"
+                    | "dependentSchemas" | "dependencies" => {
+                        if let Value::Object(schemas) = value {
+                            for schema in schemas.values() {
+                                schema_allowed(schema)?;
+                            }
+                        }
+                    }
+                    "allOf"
+                    | "anyOf"
+                    | "oneOf"
+                    | "prefixItems"
+                    | "items"
+                    | "additionalItems"
+                    | "additionalProperties"
+                    | "contains"
+                    | "not"
+                    | "propertyNames"
+                    | "if"
+                    | "then"
+                    | "else"
+                    | "unevaluatedItems"
+                    | "unevaluatedProperties"
+                    | "contentSchema" => schema_allowed(value)?,
+                    _ => {}
+                }
             }
         }
         Value::Array(items) => {

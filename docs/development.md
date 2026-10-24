@@ -78,6 +78,11 @@ a supplied task or run ID; it is not a distributed queue consumer.
 The [harness controls guide](harness-controls.md) covers durable steering,
 follow-ups, context headroom, and provider reasoning settings.
 
+External schema references are disabled. Literal values in `const`, `enum`, and
+annotations can contain keys such as `$ref`; those values remain data. References
+inside schemas must use local fragments, including schemas under properties whose
+names match schema keywords.
+
 Unknown configuration/limit fields are rejected. When changing definitions in an
 existing store, increment the Agent version. Tool references, skill contents, and
 nonsecret model transport settings remain pinned; credentials can rotate. Identical

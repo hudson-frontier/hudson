@@ -28,13 +28,16 @@ fn temporal_runs_existing_runtime_activity() {
         .unwrap()
         .build_tree(Store::default(), &actor)
         .unwrap();
+    let target = hudson_temporal::ExecutionClient::schedule_target("test", "hudson-test");
     let id = tree
         .runtime
-        .submit(
+        .submit_scheduled(
             &actor,
             tree.reference.clone(),
             serde_json::json!("test"),
             None,
+            None,
+            Some(target.clone()),
         )
         .unwrap();
     tree.runtime.cancel(&actor, id).unwrap();
@@ -48,7 +51,7 @@ fn temporal_runs_existing_runtime_activity() {
             let options = WorkerOptions::new("hudson-test")
                 .register_workflow::<RunWorkflow>()
                 .unwrap()
-                .register_activities(RunActivities::new(tree.into_scheduled(), actor))
+                .register_activities(RunActivities::new(tree.into_scheduled(), actor, target))
                 .build();
             let mut worker = Worker::new(&runtime, env.client().clone(), options).unwrap();
             let stop = worker.shutdown_handle();
@@ -207,7 +210,7 @@ fn team_scenario(published: bool) {
         drop(tree);
         RunActivities::published(store.clone(), actor, target).unwrap()
     } else {
-        RunActivities::new(tree.into_scheduled(), actor)
+        RunActivities::new(tree.into_scheduled(), actor, target)
     };
     tokio::runtime::Runtime::new()
         .unwrap()
@@ -328,7 +331,7 @@ fn question_scenario(published: bool) {
         drop(tree);
         RunActivities::published(store.clone(), actor.clone(), target.clone()).unwrap()
     } else {
-        RunActivities::new(tree.into_scheduled(), actor.clone())
+        RunActivities::new(tree.into_scheduled(), actor.clone(), target.clone())
     };
     tokio::runtime::Runtime::new()
         .unwrap()
@@ -404,7 +407,7 @@ fn question_scenario(published: bool) {
                         .unwrap()
                         .build_temporal_tree(store, &actor2)
                         .unwrap();
-                    RunActivities::new(tree.into_scheduled(), actor2)
+                    RunActivities::new(tree.into_scheduled(), actor2, target)
                 }
             })
             .await

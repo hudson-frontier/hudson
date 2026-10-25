@@ -88,6 +88,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tree = tree.as_ref().ok_or("configured runtime required")?;
             Some(match resume {
                 Some(id) => {
+                    tree.runtime
+                        .store
+                        .validate_schedule(&actor, *id, Some(&schedule_target))?;
                     let run = tree.runtime.store.inspect(&actor, *id)?;
                     if run.parent_operation.is_some() {
                         return Err("child runs are scheduled by their parent workflow; resume the root run".into());
@@ -121,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Run: {id}");
     }
     let activities = match tree {
-        Some(tree) => RunActivities::new(tree.into_scheduled(), actor),
+        Some(tree) => RunActivities::new(tree.into_scheduled(), actor, schedule_target),
         None => RunActivities::published(store.clone(), actor, schedule_target)?,
     };
     tokio::runtime::Runtime::new()?.block_on(async move {

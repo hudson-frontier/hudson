@@ -23,12 +23,12 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
     ) -> Result<()> {
         let admitted = self.store.transact(|d| {
             let run = d.run(actor, run_id)?.clone();
-            if run.status.terminal() || run.status == RunStatus::Cancelling {
-                return Ok(None);
-            }
-            let mut operation = d.operations.get(&id).cloned().ok_or(Error::NotFound)?;
+            let operation = d.operations.get(&id).ok_or(Error::NotFound)?;
             if operation.run_id != run_id {
                 return Err(Error::Denied);
+            }
+            if run.status.terminal() || run.status == RunStatus::Cancelling {
+                return Ok(None);
             }
             // A peer can settle and collect this owned operation after tick's
             // status snapshot. It is a no-op; never admit it for replay.
@@ -38,6 +38,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             ) {
                 return Ok(None);
             }
+            let mut operation = operation.clone();
             if !run.pending_operations.contains(&id) {
                 return Err(Error::Denied);
             }
@@ -338,6 +339,67 @@ mod dispatch_race_tests {
     use crate::fixtures;
 
     #[test]
+    fn stopped_runs_validate_operation_identity_before_noop() {
+        for status in [
+            RunStatus::Completed,
+            RunStatus::Failed,
+            RunStatus::Cancelled,
+            RunStatus::Cancelling,
+        ] {
+            let mut runtime = fixtures::runtime().unwrap();
+            let actor = fixtures::actor();
+            let run = runtime
+                .submit(
+                    &actor,
+                    fixtures::agent_ref(),
+                    json!({"order_id":"123","action":"lookup"}),
+                    None,
+                )
+                .unwrap();
+            runtime.tick(&actor, run).unwrap();
+            let owned = runtime.store.operations(&actor, run).unwrap()[0].meta.id;
+            let other = runtime
+                .submit(
+                    &actor,
+                    fixtures::agent_ref(),
+                    json!({"order_id":"456","action":"lookup"}),
+                    None,
+                )
+                .unwrap();
+            runtime.tick(&actor, other).unwrap();
+            let foreign = runtime.store.operations(&actor, other).unwrap()[0].meta.id;
+            runtime
+                .store
+                .transact(|data| {
+                    data.runs.get_mut(&run).unwrap().status = status;
+                    Ok(())
+                })
+                .unwrap();
+            let before = runtime.store.read(definitions::digest).unwrap();
+            assert!(
+                matches!(
+                    runtime.dispatch(&actor, run, foreign, 0),
+                    Err(Error::Denied)
+                ),
+                "{status:?} accepted a foreign operation"
+            );
+            assert!(
+                matches!(
+                    runtime.dispatch(&actor, run, Uuid::new_v4(), 0),
+                    Err(Error::NotFound)
+                ),
+                "{status:?} accepted a missing operation"
+            );
+            runtime.dispatch(&actor, run, owned, 0).unwrap();
+            assert_eq!(
+                runtime.store.read(definitions::digest).unwrap(),
+                before,
+                "{status:?} dispatch changed durable state"
+            );
+        }
+    }
+
+    #[test]
     fn a_settled_owned_operation_consumed_by_another_driver_is_a_noop() {
         let mut runtime = fixtures::runtime().unwrap();
         let actor = fixtures::actor();
@@ -389,17 +451,20 @@ mod dispatch_race_tests {
             .unwrap();
         runtime.tick(&actor, id).unwrap();
         let operation = runtime.store.operations(&actor, id).unwrap()[0].meta.id;
-        runtime
-            .store
-            .transact(|data| {
-                data.runs.get_mut(&id).unwrap().pending_operations.clear();
-                Ok(())
-            })
-            .unwrap();
-        assert!(matches!(
-            runtime.dispatch(&actor, id, operation, 0),
-            Err(Error::Denied)
-        ));
+        for status in [OperationStatus::Pending, OperationStatus::WaitingApproval] {
+            runtime
+                .store
+                .transact(|data| {
+                    data.runs.get_mut(&id).unwrap().pending_operations.clear();
+                    data.operations.get_mut(&operation).unwrap().status = status;
+                    Ok(())
+                })
+                .unwrap();
+            assert!(matches!(
+                runtime.dispatch(&actor, id, operation, 0),
+                Err(Error::Denied)
+            ));
+        }
         assert!(runtime.store.operations(&actor, id).unwrap()[0]
             .attempts
             .is_empty());

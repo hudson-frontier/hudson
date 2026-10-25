@@ -132,6 +132,10 @@ exit after acceptance does not discard the work. Reuse `request_key` for retries
 task queue. Controls validate the root scheduling target, including for delegated
 runs. Approvals and replies are saved in PostgreSQL; the worker observes them on
 its next tick. This mode does not adopt runs created by the local execution mode.
+Cancellation checks the same scheduling boundary: a local-execution sibling
+cannot cancel a saved Temporal run, and a different task queue cannot control it.
+The matching host can still request cancellation after executor configuration
+drift; cancellation does not require reconstructing the original executors.
 
 This remains a loopback API with one configured identity. Optional scoped bearer
 authentication is described below; hosted multi-tenant deployment remains separate work.

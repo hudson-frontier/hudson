@@ -291,14 +291,17 @@ fn temporal_combines_customer_capabilities_and_persists_verified_evidence() {
         .unwrap()
         .build_temporal_tree(store.clone(), &actor)
         .unwrap();
+    let queue = format!("capabilities-{}", uuid::Uuid::new_v4());
+    let target = hudson_temporal::ExecutionClient::schedule_target(&namespace, &queue);
     let run = tree
         .runtime
-        .submit_with_goal(
+        .submit_scheduled(
             &actor,
             tree.reference.clone(),
             json!("Analyze Austin warehouse inventory"),
             None,
             tree.goal.clone(),
+            Some(target.clone()),
         )
         .unwrap();
     let observed = fixture.observed.clone();
@@ -310,11 +313,14 @@ fn temporal_combines_customer_capabilities_and_persists_verified_evidence() {
                 .await
                 .unwrap();
             let runtime = Runtime::from_current_tokio(Default::default()).unwrap();
-            let queue = format!("capabilities-{run}");
             let options = WorkerOptions::new(queue.clone())
                 .register_workflow::<RunWorkflow>()
                 .unwrap()
-                .register_activities(RunActivities::new(tree.into_scheduled(), actor_for_worker))
+                .register_activities(RunActivities::new(
+                    tree.into_scheduled(),
+                    actor_for_worker,
+                    target,
+                ))
                 .build();
             let mut worker = Worker::new(&runtime, env.client().clone(), options).unwrap();
             let stop = worker.shutdown_handle();

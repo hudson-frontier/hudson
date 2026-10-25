@@ -147,6 +147,9 @@ authentication, output caps, schemas, and continuation metadata. A live Gemini 3
 model calls, one HTTP tool call, and a passed output contract. Anthropic and Ollama
 have offline coverage only.
 
+Model, HTTP tool, and MCP clients connect directly to loopback HTTP endpoints.
+HTTPS connections retain their normal proxy environment configuration.
+
 ## Tools
 
 A configured HTTP tool:

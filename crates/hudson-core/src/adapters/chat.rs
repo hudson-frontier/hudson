@@ -72,7 +72,7 @@ impl ChatModel {
             .timeout(Duration::from_secs(120))
             .connect_timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none());
-        let builder = if no_proxy {
+        let builder = if no_proxy || (endpoint.scheme() == "http" && local) {
             builder.no_proxy()
         } else {
             builder

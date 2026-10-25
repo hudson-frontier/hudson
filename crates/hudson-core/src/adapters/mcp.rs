@@ -173,12 +173,22 @@ async fn connect(
         .as_ref()
         .map(|key| std::env::var(key).map_err(|_| failed()))
         .transpose()?;
-    let client = reqwest::Client::builder()
+    let endpoint = reqwest::Url::parse(&config.endpoint).map_err(|_| failed())?;
+    let local = matches!(
+        endpoint.host_str(),
+        Some("localhost" | "127.0.0.1" | "[::1]")
+    );
+    let builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(config.timeout_seconds))
         .connect_timeout(Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| failed())?;
+        .redirect(reqwest::redirect::Policy::none());
+    let client = if endpoint.scheme() == "http" && local {
+        builder.no_proxy()
+    } else {
+        builder
+    }
+    .build()
+    .map_err(|_| failed())?;
     let mut transport = StreamableHttpClientTransportConfig::with_uri(config.endpoint.clone());
     transport.auth_header = token;
     transport.reinit_on_expired_session = false; // Never replay a tools/call after an expired session.

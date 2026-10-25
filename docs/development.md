@@ -330,6 +330,12 @@ automatically retries a mutation.
 When `--api-token-env` is set, loopback HTTP connects directly instead of using
 environment proxies. HTTPS retains its normal proxy configuration.
 
+The local listener accepts only `localhost`, `127.0.0.1`, or `[::1]` request
+authorities. A browser's `Origin`, when present, must match the request's HTTP
+authority; opaque and cross-origin requests are rejected with `403` before routing
+or body processing. Ordinary CLI clients do not need an `Origin` header. Loopback
+port forwarding can retain its externally selected port.
+
 The fixture preview remains `hudson-server --demo`; the explicit fixture input is
 `hudson-cli start --order 123 [--refund]`. Events are cursor-polled;
 SSE/WebSocket streaming, public authentication, and multi-tenant hosting are absent.

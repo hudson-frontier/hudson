@@ -1,4 +1,5 @@
 mod auth;
+mod browser;
 mod config;
 mod routes;
 
@@ -69,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .join()
     .map_err(|_| "server initialization failed")??;
+    let router = router.layer(axum::middleware::from_fn(browser::protect));
     // Retain the shared state until the async runtime has finished shutting down.
     // The synchronous PostgreSQL clients must be dropped outside Tokio.
     let retained_router = router.clone();

@@ -110,7 +110,10 @@ and uncertain requests keep their charges. There are no extra model-based
 selection calls, automatic retries, budget refunds or provider switches.
 
 Each stage uses a normal durable run. Stage admission and registration commit
-together; concurrent drivers find the same run. Queue steering/follow-ups are
+together; concurrent drivers find the same run. A late dispatch of an already
+settled operation is ignored after checking run ownership. Pending operations
+still require current batch membership, preserving authorization and preventing
+duplicate attempts. Queue steering/follow-ups are
 rejected for stage runs because their inputs are frozen. Ordinary policy and
 approval checks still gate read tools. An approval wait or uncertain operation
 pauses the experiment. Inspect its stage run and use the existing approval or

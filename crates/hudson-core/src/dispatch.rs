@@ -27,14 +27,19 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 return Ok(None);
             }
             let mut operation = d.operations.get(&id).cloned().ok_or(Error::NotFound)?;
-            if operation.run_id != run_id || !run.pending_operations.contains(&id) {
+            if operation.run_id != run_id {
                 return Err(Error::Denied);
             }
+            // A peer can settle and collect this owned operation after tick's
+            // status snapshot. It is a no-op; never admit it for replay.
             if !matches!(
                 operation.status,
                 OperationStatus::Pending | OperationStatus::WaitingApproval
             ) {
                 return Ok(None);
+            }
+            if !run.pending_operations.contains(&id) {
+                return Err(Error::Denied);
             }
             if operation.request_digest
                 != definitions::digest(&(id, run_id, &actor.workspace_id, &operation.request))?
@@ -324,5 +329,79 @@ fn invalid_result(tool: Option<&Tool>, message: &str) -> ExecutionError {
         ExecutionError::Unknown(message.into())
     } else {
         ExecutionError::Failed(message.into())
+    }
+}
+
+#[cfg(all(test, feature = "fixtures"))]
+mod dispatch_race_tests {
+    use super::*;
+    use crate::fixtures;
+
+    #[test]
+    fn a_settled_owned_operation_consumed_by_another_driver_is_a_noop() {
+        let mut runtime = fixtures::runtime().unwrap();
+        let actor = fixtures::actor();
+        let id = runtime
+            .submit(
+                &actor,
+                fixtures::agent_ref(),
+                json!({"order_id":"123","action":"lookup"}),
+                None,
+            )
+            .unwrap();
+        runtime.tick(&actor, id).unwrap();
+        let operation = runtime.store.operations(&actor, id).unwrap()[0].meta.id;
+        runtime.tick(&actor, id).unwrap();
+        let before = runtime.store.operations(&actor, id).unwrap();
+        assert!(!runtime.store.inspect(&actor, id).unwrap().status.terminal());
+        assert_eq!(before[0].status, OperationStatus::Succeeded);
+        // A peer read Pending before this driver's tick settled and collected
+        // the batch, then arrived at dispatch with its old operation ID.
+        assert!(runtime.dispatch(&actor, id, operation, 0).is_ok());
+        let after = runtime.store.operations(&actor, id).unwrap();
+        assert_eq!(after[0].attempts.len(), before[0].attempts.len());
+        assert_eq!(after[0].status, OperationStatus::Succeeded);
+        let other = runtime
+            .submit(
+                &actor,
+                fixtures::agent_ref(),
+                json!({"order_id":"456","action":"lookup"}),
+                None,
+            )
+            .unwrap();
+        assert!(matches!(
+            runtime.dispatch(&actor, other, operation, 0),
+            Err(Error::Denied)
+        ));
+    }
+
+    #[test]
+    fn an_unattached_pending_operation_is_still_denied() {
+        let mut runtime = fixtures::runtime().unwrap();
+        let actor = fixtures::actor();
+        let id = runtime
+            .submit(
+                &actor,
+                fixtures::agent_ref(),
+                json!({"order_id":"123","action":"lookup"}),
+                None,
+            )
+            .unwrap();
+        runtime.tick(&actor, id).unwrap();
+        let operation = runtime.store.operations(&actor, id).unwrap()[0].meta.id;
+        runtime
+            .store
+            .transact(|data| {
+                data.runs.get_mut(&id).unwrap().pending_operations.clear();
+                Ok(())
+            })
+            .unwrap();
+        assert!(matches!(
+            runtime.dispatch(&actor, id, operation, 0),
+            Err(Error::Denied)
+        ));
+        assert!(runtime.store.operations(&actor, id).unwrap()[0]
+            .attempts
+            .is_empty());
     }
 }

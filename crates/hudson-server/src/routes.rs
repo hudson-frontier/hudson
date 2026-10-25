@@ -416,9 +416,8 @@ async fn approve(
 }
 async fn cancel(State(app): State<App>, Path(id): Path<Uuid>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
-        if let Some(target) = &app.schedule {
-            app.store.validate_schedule(&app.actor, id, Some(target))?;
-        }
+        app.store
+            .validate_schedule(&app.actor, id, app.schedule.as_ref())?;
         app.lock()?.cancel(&app.actor, id)?;
         Ok(Json(json!({"run_id":id})))
     })
@@ -893,8 +892,19 @@ mod tests {
                 request(&other, "POST", &format!("/runs/{id}/{action}"), json!({})).await;
             assert_eq!(status, StatusCode::CONFLICT);
         }
-        let (status, _) = request(&local, "POST", &format!("/runs/{id}/resume"), json!({})).await;
-        assert_eq!(status, StatusCode::CONFLICT);
+        for action in ["resume", "cancel"] {
+            let (status, _) =
+                request(&local, "POST", &format!("/runs/{id}/{action}"), json!({})).await;
+            assert_eq!(
+                status,
+                StatusCode::CONFLICT,
+                "local host controlled a scheduled run"
+            );
+            assert_eq!(
+                store.inspect(&actor, parsed).unwrap().status,
+                RunStatus::Queued
+            );
+        }
         let (status, _) = request(&app, "POST", &format!("/runs/{id}/resume"), json!({})).await;
         assert_eq!(status, StatusCode::OK);
         let (status, _) = request(&app, "POST", &format!("/runs/{id}/cancel"), json!({})).await;

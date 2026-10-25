@@ -16,6 +16,11 @@ Start a Temporal server separately (`temporal server start-dev`) and a Postgres
 server. Configure the Temporal connection through the official SDK's environment
 configuration. Use a dedicated task queue for each immutable configured tree and
 Hudson database namespace; every worker on that queue must use that same config.
+Configured activities validate the saved scheduling target on every attempt,
+including delegated runs, before inspecting operations or invoking executors.
+An absent or mismatched target is rejected; `run --resume` uses the same check.
+Rust hosts pass `ExecutionClient::schedule_target(namespace, task_queue)` to
+`RunActivities::new` and admit work with `submit_scheduled`.
 
 ```sh
 cargo run -p hudson-temporal -- \

@@ -55,10 +55,10 @@ crates/
   hudson-temporal/src/
     lib.rs             durable run workflow, child scheduling, runtime activities
     main.rs            worker, foreground/background submissions, resume
-  hudson-cli/src/
-    main.rs            generic HTTP client
-    commands.rs        command arguments
-    client.rs          HTTP transport
+  hudson-api-fixture/src/
+    main.rs            private backend HTTP conformance fixture
+    commands.rs        fixture arguments
+    client.rs          test transport
   hudson-sandbox-transport/src/
     lib.rs             pinned SDK bodies and owned, bounded HTTPS receipt observation
 ```
@@ -70,7 +70,8 @@ hudson-worker ──┐
 hudson-temporal ├─→ hudson-core ─→ hudson-harness
 hudson-server ──┘
 
-hudson-cli ── HTTP/JSON ─→ hudson-server
+standalone hudson agent ── HTTP/JSON ─→ hudson-server
+hudson-api-fixture ── HTTP/JSON ─→ hudson-server (backend tests only)
 hudson-sandbox-transport ─→ hudson-core + pinned public sandbox-client SDK
 ```
 
@@ -78,6 +79,13 @@ hudson-sandbox-transport ─→ hudson-core + pinned public sandbox-client SDK
 custom `Backend` without replacing runtime enforcement. It receives configuration,
 a checkpoint, and an input; it returns the next checkpoint and proposed actions.
 It never holds provider clients, credentials, store handles, or tool executors.
+
+The public operator client lives in
+[hudson-frontier/hudson-cli](https://github.com/hudson-frontier/hudson-cli).
+This workspace reserves the `hudson` and `hudson-cli` executable names for that
+distribution. The private API fixture preserves backend protocol and process
+regressions without becoming a second product CLI. Add operator commands to the
+standalone client; change this fixture only when backend conformance requires it.
 
 `hudson-core` owns authority and effects. It validates the proposed action, commits
 operation intent and admission counters, then calls the configured executor

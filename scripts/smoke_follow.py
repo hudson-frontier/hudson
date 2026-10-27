@@ -11,7 +11,7 @@ import time
 import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BINARY = pathlib.Path(os.environ.get('CARGO_TARGET_DIR', ROOT / 'target')) / 'debug/hudson-cli'
+BINARY = pathlib.Path(os.environ.get('CARGO_TARGET_DIR', ROOT / 'target')) / 'debug/hudson-api-fixture'
 RUN = '00000000-0000-0000-0000-000000000018'
 TOKEN = 'follow-fixture-secret'
 ENV = dict(os.environ, HUDSON_FOLLOW_FIXTURE_TOKEN=TOKEN)

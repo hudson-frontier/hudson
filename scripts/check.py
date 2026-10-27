@@ -34,6 +34,7 @@ def main():
 
     run('cargo', 'fmt', '--all', '--', '--check')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_repository.py', '-v')
+    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_operator_cli.py', '-v')
     run(sys.executable, 'scripts/check_api_compatibility.py')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'integrations/python', '-v')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'examples/project-files', '-v')
@@ -42,14 +43,14 @@ def main():
         test += ['--', '--include-ignored']
     run(*test)
     if args.temporal:
-        run('cargo', 'build', '--locked', '-p', 'hudson-server', '-p', 'hudson-cli')
+        run('cargo', 'build', '--locked', '-p', 'hudson-server', '-p', 'hudson-api-fixture')
     temporal_test = ['cargo', 'test', '--locked', '-p', 'hudson-temporal']
     if args.temporal:
         temporal_test += ['--', '--include-ignored']
     run(*temporal_test)
     run('cargo', 'clippy', '--locked', '--workspace', '--all-targets', '--all-features', '--', '-D', 'warnings')
     run('cargo', 'check', '--locked', '-p', 'hudson-core', '--no-default-features')
-    run('cargo', 'build', '--locked', '-p', 'hudson-worker', '-p', 'hudson-server', '-p', 'hudson-cli', '-p', 'hudson-temporal')
+    run('cargo', 'build', '--locked', '-p', 'hudson-worker', '-p', 'hudson-server', '-p', 'hudson-api-fixture', '-p', 'hudson-temporal')
     for config in CONFIGS:
         run('target/debug/hudson-worker', '--config', 'examples/' + config, '--check')
     for name in LOCAL_SMOKES + (DATABASE_SMOKES if args.database else ()):

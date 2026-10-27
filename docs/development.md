@@ -19,8 +19,13 @@ cargo run --locked -p hudson-worker -- --config examples/analyst.json --check
 cargo run --locked -p hudson-worker -- --config examples/analyst.json --task 'Find the mean of 10, 20, and 30'
 cargo install --debug --locked --path crates/hudson-worker
 cargo install --debug --locked --path crates/hudson-server
-cargo install --debug --locked --path crates/hudson-cli
 ```
+
+Install the operator client from the separate
+[Hudson CLI repository](https://github.com/hudson-frontier/hudson-cli#installation).
+Use `hudson agent` to operate this backend. The private `hudson-api-fixture`
+executable exists only to keep backend protocol tests independent of a client
+release; it is not an installation target or a supported operator interface.
 
 For structured data, supply JSON directly:
 
@@ -232,7 +237,7 @@ submission key derived from the parent operation. Repeated delivery finds the
 same child. `join_delegate_<name>` takes `{"run_id":"..."}` and resumes that child;
 completed children return their recorded result without another model call.
 Waiting/uncertain children return status and a handle, never a false completion.
-Use `GET /runs/{id}/children` or `hudson-cli children RUN_UUID` to discover direct
+Use `GET /runs/{id}/children` or `hudson agent children RUN_UUID` to discover direct
 children. Approval and resume route to each child’s own provider and tools.
 The worker also accepts a child ID with `--resume` and the original tree config;
 `--inspect-run` includes direct children. Hosts reject agent versions outside
@@ -311,13 +316,13 @@ It binds only to loopback with one developer identity. Execution is independent
 of the submitting HTTP connection. Blocking model/tool calls do not hold the
 inspection/control handle; database handlers run on blocking workers.
 
-`hudson-cli start --task '...'` submits text; `start --input-file task.json` submits
+`hudson agent start --task '...'` submits text; `start --input-file task.json` submits
 arbitrary JSON, and `--input-file -` reads JSON from stdin. Exactly one input mode
 is required. `--request-key` deduplicates submission. Encoded request bodies are
 capped at the server's 64 KiB limit; malformed JSON and ambiguous input modes fail
 locally. `resume RUN_UUID` continues a saved run, while `get`, `events`, `operation`,
-`approve [--deny]`, and `cancel` expose its ordinary controls. Put `--url` before
-the command to select another server.
+`approve [--deny]`, and `cancel` expose its ordinary controls. Put `--url` after
+`hudson agent` and before the action to select another server.
 
 HTTP CLI file inputs must be regular files. Symbolic links, Windows reparse points,
 and special files are rejected before any request. Use `--input-file -` or a
@@ -337,8 +342,16 @@ or body processing. Ordinary CLI clients do not need an `Origin` header. Loopbac
 port forwarding can retain its externally selected port.
 
 The fixture preview remains `hudson-server --demo`; the explicit fixture input is
-`hudson-cli start --order 123 [--refund]`. Events are cursor-polled;
+`hudson agent start --order 123 [--refund]`. Events are cursor-polled;
 SSE/WebSocket streaming, public authentication, and multi-tenant hosting are absent.
+
+To test a separately built operator client against the real backend, set
+`HUDSON_TEST_OPERATOR_CLI` to its absolute binary path before running
+`scripts/smoke_api.py`, `scripts/smoke_auth.py`, or `scripts/smoke_publication.py`.
+These scripts add the `agent` command group automatically. The usual dedicated
+PostgreSQL and Temporal prerequisites still apply; no model provider is contacted.
+Without this explicit override, backend CI uses `hudson-api-fixture` and never
+downloads or builds another repository's client.
 
 ## Evaluation and extension points
 
@@ -425,7 +438,7 @@ Reply through `POST /runs/{id}/input` with
 `{"input":"Boston","request_key":"answer-1","question_id":QUESTION_ID}`, or:
 
 ```sh
-cargo run --locked -p hudson-cli -- reply RUN_UUID --text Boston --request-key answer-1 --question-id QUESTION_ID
+hudson agent reply RUN_UUID --text Boston --request-key answer-1 --question-id QUESTION_ID
 ```
 
 The API schedules continuation using the run’s configured executor, including

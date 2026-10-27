@@ -13,6 +13,8 @@ import urllib.error
 import urllib.request
 import uuid
 
+from operator_cli import command as operator_command
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'integrations/python'))
 from hudson_client import HudsonClient, HttpError
 
@@ -95,7 +97,7 @@ try:
         assert request('GET', '/runs/' + run, first['token'])[1]['status'] == 'queued'
         assert request('POST', '/runs', first['token'], dict(task, workspace_id='customer-two'))[0] == 422
         cli_env = dict(env, HUDSON_TEST_API_TOKEN=first['token'])
-        cli = [str(binary / 'hudson-cli'), '--url', api, '--api-token-env', 'HUDSON_TEST_API_TOKEN']
+        cli = [*operator_command(binary), '--url', api, '--api-token-env', 'HUDSON_TEST_API_TOKEN']
         result = subprocess.run([*cli, 'get', run], env=cli_env, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0
         assert first['token'] not in result.stdout + result.stderr
@@ -110,7 +112,7 @@ try:
         time.sleep(1.1)
         assert request('GET', '/health', expired['token'])[0] == 401
         client_denied(expired['token'])
-        result = subprocess.run([str(binary / 'hudson-cli'), '--url', 'http://example.invalid',
+        result = subprocess.run([*operator_command(binary), '--url', 'http://example.invalid',
             '--api-token-env', 'HUDSON_TEST_API_TOKEN', 'health'], env=cli_env,
             capture_output=True, text=True, timeout=5)
         assert result.returncode != 0 and 'requires HTTPS' in result.stderr

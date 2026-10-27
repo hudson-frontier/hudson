@@ -38,12 +38,12 @@ Customers only supply the tool and agent request files. No endpoint, credential
 name, storage namespace, or orchestration code belongs in these public requests:
 
 ```sh
-cargo run -p hudson-cli -- --api-token-env HUDSON_API_TOKEN capabilities
-cargo run -p hudson-cli -- --api-token-env HUDSON_API_TOKEN \
+hudson agent --api-token-env HUDSON_API_TOKEN capabilities
+hudson agent --api-token-env HUDSON_API_TOKEN \
   publish-tool examples/customer-api/tool.json
-cargo run -p hudson-cli -- --api-token-env HUDSON_API_TOKEN \
+hudson agent --api-token-env HUDSON_API_TOKEN \
   publish-agent examples/customer-api/agent.json
-cargo run -p hudson-cli -- --api-token-env HUDSON_API_TOKEN \
+hudson agent --api-token-env HUDSON_API_TOKEN \
   start --agent customer-assistant --agent-version 1 \
   --task 'Summarize customer C-42' --request-key customer-C42
 ```

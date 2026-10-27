@@ -19,6 +19,8 @@ import urllib.error
 import urllib.request
 import uuid
 
+from operator_cli import command as operator_command
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'integrations/python'))
 from hudson_client import HudsonClient, HttpError
 
@@ -168,7 +170,7 @@ try:
 
         server, api = start_api()
         def cli(*arguments):
-            result = subprocess.run([str(binary / 'hudson-cli'), '--url', api,
+            result = subprocess.run([*operator_command(binary), '--url', api,
                 '--api-token-env', 'HUDSON_CUSTOMER_TOKEN', *arguments],
                 env=dict(os.environ, HUDSON_CUSTOMER_TOKEN=token), capture_output=True,
                 text=True, timeout=15)

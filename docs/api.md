@@ -45,7 +45,7 @@ Migration from the earlier preview API: an omitted `limit` now returns at most
 before treating history as complete; the array shape alone does not indicate
 completion. The local Python client supports bounded pages and cursor reconnects;
 there is no registry-published Hudson SDK. The CLI
-`hudson-cli events RUN_UUID --after N` reads one page, so repeat it with the last
+`hudson agent events RUN_UUID --after N` reads one page, so repeat it with the last
 returned `sequence` until the result is `[]`. Use the `follow` command below for automatic draining and live observation. Internal Rust
 `Store::events()` callers continue receiving the complete history.
 
@@ -70,9 +70,9 @@ answer under the same key or an answer for the wrong pending question conflicts.
 Follow a run without changing its execution state:
 
 ```sh
-hudson-cli follow RUN_UUID --after 0
+hudson agent follow RUN_UUID --after 0
 # Reconnect from the final event sequence your client processed:
-hudson-cli follow RUN_UUID --after 123 --page-size 100 --poll-ms 1000
+hudson agent follow RUN_UUID --after 123 --page-size 100 --poll-ms 1000
 ```
 
 `follow` writes flushed JSON Lines: `type: "event"` records carry the original
@@ -179,7 +179,7 @@ cargo run --locked -p hudson-temporal -- --config examples/analyst.json \
 Configure `HUDSON_API_TOKEN` in the calling process environment, then use:
 
 ```sh
-cargo run --locked -p hudson-cli -- --api-token-env HUDSON_API_TOKEN \
+hudson agent --api-token-env HUDSON_API_TOKEN \
   start --task 'Analyze these records' --request-key analysis-001
 ```
 
@@ -244,7 +244,7 @@ in catalog mode and requires `agent_ref` and `request_key` there.
 
 ### Interactive terminal operator
 
-`hudson` (no subcommand) opens a terminal prompt; `hudson session --agent NAME
+`hudson agent session` opens a terminal prompt; `hudson agent session --agent NAME
 --agent-version VERSION` selects a published agent. This client uses the same
 authenticated API and exclusive bounded event cursors as `follow`, yielding at
 waits for explicit reply/approval actions. It does not create a host, automatically

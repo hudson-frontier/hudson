@@ -35,9 +35,20 @@ def check(root=ROOT):
     require(package.get('license') == 'Apache-2.0', 'Workspace license must be Apache-2.0')
     require(package.get('publish') is False, 'Crate publication is not enabled by release automation')
     names = set()
+    operator_names = {'hudson', 'hudson-cli'}
     for member in workspace['members']:
-        manifest = read_toml(root / member / 'Cargo.toml')['package']
+        cargo = read_toml(root / member / 'Cargo.toml')
+        manifest = cargo['package']
         names.add(manifest['name'])
+        # Backend development must not replace the standalone operator client.
+        binaries = {item['name'] for item in cargo.get('bin', [])}
+        if (root / member / 'src/main.rs').is_file():
+            binaries.add(manifest['name'])
+        for path in (root / member / 'src/bin').glob('*'):
+            if path.suffix == '.rs' or (path.is_dir() and (path / 'main.rs').is_file()):
+                binaries.add(path.stem if path.is_file() else path.name)
+        require(not binaries & operator_names,
+                f'{member}: hudson and hudson-cli binaries belong to the standalone CLI repository')
         for field in ('version', 'license', 'repository', 'publish'):
             require(manifest.get(field) == {'workspace': True},
                     f'{member}: {field} must inherit from the workspace')
@@ -88,4 +99,4 @@ if __name__ == '__main__':
         sys.exit(f'Repository policy failed: {error}')
     if failures:
         sys.exit('\n'.join(failures))
-    print('PASS: Apache-2.0 licensing, release versions, labels, and action pins')
+    print('PASS: Apache-2.0 licensing, release versions, operator binary ownership, labels, and action pins')

@@ -11,7 +11,7 @@
   {"name":"breaking change","color":"B60205","description":"Requires a migration"},
   {"name":"area: harness","color":"C5DEF5","description":"Portable agent loop","paths":["crates/hudson-harness/"]},
   {"name":"area: core","color":"C5DEF5","description":"Runtime and execution controls","paths":["crates/hudson-core/"]},
-  {"name":"area: cli","color":"C5DEF5","description":"Command-line client","paths":["crates/hudson-cli/"]},
+  {"name":"area: cli","color":"C5DEF5","description":"Command-line client","paths":["crates/hudson-api-fixture/"]},
   {"name":"area: server","color":"C5DEF5","description":"HTTP server","paths":["crates/hudson-server/"]},
   {"name":"area: worker","color":"C5DEF5","description":"Worker execution","paths":["crates/hudson-worker/"]},
   {"name":"area: temporal","color":"C5DEF5","description":"Temporal execution","paths":["crates/hudson-temporal/"]},

@@ -28,6 +28,23 @@ class ReleasePolicyTests(unittest.TestCase):
     def test_current_release_covers_workspace_crates(self):
         self.assertEqual(check_repository.check(self.root), [])
 
+    def test_backend_cannot_install_standalone_operator_binary_names(self):
+        member = 'crates/hudson-api-fixture'
+        path = self.root / member / 'Cargo.toml'
+        original = path.read_text()
+        message = f'{member}: hudson and hudson-cli binaries belong to the standalone CLI repository'
+        for name in ('hudson', 'hudson-cli'):
+            with self.subTest(name=name, source='explicit'):
+                path.write_text(original + f'\n[[bin]]\nname = "{name}"\npath = "src/main.rs"\n')
+                self.assertIn(message, check_repository.check(self.root))
+            path.write_text(original)
+            implicit = self.root / member / 'src/bin' / f'{name}.rs'
+            implicit.parent.mkdir(parents=True, exist_ok=True)
+            implicit.write_text('fn main() {}')
+            with self.subTest(name=name, source='implicit'):
+                self.assertIn(message, check_repository.check(self.root))
+            implicit.unlink()
+
     def test_release_strategy_cannot_skip_patch_increments(self):
         path = self.root / 'release-please-config.json'
         release = json.loads(path.read_text())

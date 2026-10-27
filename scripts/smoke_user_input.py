@@ -104,7 +104,7 @@ try:
             assert error.code == 409
         assert request('GET', '/runs/' + run)['wait'] == waiting['wait']
         assert len(calls) == 1
-        reply = ['target/debug/hudson-cli','--url',api,'reply',run,'--text','Boston','--request-key','answer-1','--question-id',str(question_id)]
+        reply = ['target/debug/hudson-api-fixture','--url',api,'reply',run,'--text','Boston','--request-key','answer-1','--question-id',str(question_id)]
         subprocess.run(reply, check=True, capture_output=True, text=True)
         complete = until(run, 'completed')
         assert complete['result'] == {'city':'Boston'}

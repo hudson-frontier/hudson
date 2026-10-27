@@ -46,7 +46,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 url = f'http://127.0.0.1:{server.server_port}'
 
 try:
-    for name in ('hudson-cli', 'hudson'):
+    for name in ('hudson-api-fixture',):
         binary = str(Path('target/debug', name).resolve())
         for method, command in [('GET', ['health']), ('POST', ['cancel', RUN])]:
             for fixture in [
@@ -88,7 +88,7 @@ try:
             assert result.returncode == 0 and not result.stderr, (result.returncode, result.stderr)
             assert 128 * 1024 * 1024 < output.tell() < 256 * 1024 * 1024, output.tell()
         assert requests == [('GET', '/health')], requests
-    print('PASS ordinary CLI responses: byte limits, JSON validation, HTTP errors, single-attempt mutations, closed output, and bounded formatting heap for both entrypoints.')
+    print('PASS private API fixture responses: byte limits, JSON validation, HTTP errors, single-attempt mutations, closed output, and bounded formatting heap.')
 finally:
     server.shutdown()
     server.server_close()

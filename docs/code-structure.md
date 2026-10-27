@@ -3,6 +3,13 @@
 The implementation is one Cargo workspace with seven crates. Domain behavior
 belongs in tools and configuration. The loop has its own module and performs no IO.
 
+The default `hudson` entrypoint hosts a local session in `hudson-cli/src/local/`:
+`mod.rs` owns workspace/session binding and runtime driving, `tools.rs` supplies
+local file/search/process execution, and `tui.rs` owns terminal input/rendering.
+It uses the same core runtime with a lifetime-locked, atomic local snapshot store
+and the Anthropic adapter's optional bounded streaming path. See
+[local agent](local-agent.md) for execution and persistence boundaries.
+
 ```text
 crates/
   hudson-harness/src/

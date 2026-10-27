@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL_SMOKES = ('providers', 'browser_boundary', 'subagents', 'evaluation', 'python_tool', 'real_estate', 'follow', 'session', 'cli_responses', 'cli_proxy', 'cli_json_files', 'experiments')
+LOCAL_SMOKES = ('providers', 'browser_boundary', 'subagents', 'evaluation', 'python_tool', 'real_estate', 'follow', 'session', 'local_tui', 'cli_responses', 'cli_proxy', 'cli_json_files', 'experiments')
 DATABASE_SMOKES = ('approval', 'api', 'recovery', 'child_approval', 'user_input', 'inbox', 'memory', 'auth')
 CONFIGS = ('analyst.json', 'data-agent.json', 'team.json', 'python-tool/agent.json',
            'customer-mcp.json', 'real-estate/agent.json', 'project-files/agent.json')

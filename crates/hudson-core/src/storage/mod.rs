@@ -1,4 +1,5 @@
 //! Atomic state storage. External effects must occur outside transactions.
+mod local;
 pub mod memory;
 mod pairs;
 mod postgres;

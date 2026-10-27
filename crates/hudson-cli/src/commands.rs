@@ -1,8 +1,25 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(about = "Client for the local Hudson agent API")]
+#[command(about = "Hudson local agent and HTTP API client")]
 pub struct Args {
+    /// Local workspace (defaults to the current directory for `hudson`).
+    #[arg(long)]
+    pub workspace: Option<std::path::PathBuf>,
+    /// Resume a saved local session UUID.
+    #[arg(long)]
+    pub resume: Option<uuid::Uuid>,
+    /// Model provider for the local host (currently anthropic).
+    #[arg(long)]
+    pub provider: Option<String>,
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Full model transport URL; HTTP is allowed only on loopback.
+    #[arg(long)]
+    pub endpoint: Option<String>,
+    /// Host-selected local execution policy. Full access uses your OS permissions.
+    #[arg(long, value_enum)]
+    pub permission: Option<Permission>,
     #[arg(long, default_value = "http://127.0.0.1:4318")]
     pub url: String,
     /// Read the bearer token from this environment variable, never from an argument.
@@ -10,6 +27,24 @@ pub struct Args {
     pub api_token_env: Option<String>,
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    clap::ValueEnum,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum Permission {
+    ReadOnly,
+    #[default]
+    Ask,
+    FullAccess,
 }
 #[derive(Subcommand)]
 pub enum Command {

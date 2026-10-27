@@ -114,6 +114,38 @@ impl ModelExecutor for ChatModel {
     }
 }
 impl ChatModel {
+    pub(super) fn post_anthropic_stream(
+        &mut self,
+        body: &Value,
+        observer: &mut dyn FnMut(&str),
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Value, ExecutionError> {
+        self.last_usage = None;
+        let mut body = body.clone();
+        body["stream"] = json!(true);
+        let mut http = self
+            .client
+            .post(self.endpoint.clone())
+            .header("anthropic-version", "2023-06-01")
+            .json(&body);
+        if let Some(key) = &self.api_key {
+            http = http.header("x-api-key", key);
+        }
+        let response = http.send().map_err(|_| {
+            ExecutionError::Unknown(
+                "model transport failed; request may have been processed".into(),
+            )
+        })?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let category = super::provider_errors::classify(status, response);
+            return Err(failed(&format!("model HTTP status {status}: {category}")));
+        }
+        let value = super::anthropic_stream::read(response, observer, cancelled)?;
+        self.last_usage = reported_usage(&value, true);
+        Ok(value)
+    }
+
     pub(super) fn post_json(
         &mut self,
         body: &Value,

@@ -34,16 +34,29 @@ Build the backend from source with the pinned Rust 1.92.0 toolchain:
 ```sh
 git clone https://github.com/hudson-frontier/hudson.git
 cd hudson
-cargo build --locked -p hudson-worker -p hudson-server
+cargo build --locked -p hudson-cli -p hudson-worker -p hudson-server
+cargo install --debug --locked --path crates/hudson-cli
 ```
 
 Full workspace development also needs Python 3.12+, Node.js 22+, and `protoc`.
 PostgreSQL and recovery checks use Unix facilities; Linux or WSL is recommended.
 Follow the [development guide](docs/development.md) for prerequisites and coverage.
 
-The separately distributed [Hudson CLI](https://github.com/hudson-frontier/hudson-cli#installation)
-connects to an existing service with `hudson agent`. Installing that client and
-building a backend are separate setup steps.
+Start the local terminal agent in a project directory with `ANTHROPIC_API_KEY`
+available in its environment:
+
+```sh
+cd /path/to/project
+hudson
+```
+
+The default TUI runs its own local host, streams Claude responses, reads and edits
+workspace files, searches with `rg`, and executes commands. It saves conversation
+and operation state locally; no separate server or PostgreSQL is required. Writes
+and shell commands require approval by default. `--permission read-only` disables
+them; `--permission full-access` permits them under your OS permissions.
+See [local agent](docs/local-agent.md) for sessions, execution boundaries and limits.
+The `hudson-cli` binary retains the HTTP client for an existing service.
 
 ## Run an agent
 
@@ -126,13 +139,13 @@ cargo run --locked -p hudson-server -- --config examples/analyst.json \
   --database hudson --namespace my-project
 ```
 
-From another terminal, use the published Hudson CLI:
+From another terminal, use the HTTP client:
 
 ```sh
-hudson agent health
-hudson agent start --task "Find the mean of 10, 20, and 30" --request-key analysis-002
-hudson agent follow RUN_UUID
-hudson agent session
+hudson-cli health
+hudson-cli start --task "Find the mean of 10, 20, and 30" --request-key analysis-002
+hudson-cli follow RUN_UUID
+hudson-cli session
 ```
 
 Copy the returned `run_id` into `follow`. Submission returns before completion;
@@ -184,6 +197,7 @@ scheduling receipts, and recovery boundaries.
 
 | Guide | Covers |
 | --- | --- |
+| [Local agent](docs/local-agent.md) | Default TUI, workspace tools, conversations and local execution |
 | [Development](docs/development.md) | Configuration, providers, tools, and local setup |
 | [HTTP API](docs/api.md) | Authentication, publication, run controls, and event cursors |
 | [Recovery](docs/recovery.md) | Interrupted attempts and verified tool receipts |

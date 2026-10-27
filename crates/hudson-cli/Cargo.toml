@@ -13,9 +13,14 @@ clap.workspace = true
 uuid.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+hudson-core.workspace = true
+hudson-harness.workspace = true
+ratatui = "0.29.0"
+crossterm = "0.28.1"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

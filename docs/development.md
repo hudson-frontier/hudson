@@ -12,6 +12,10 @@ The hosted workflow installs it explicitly.
 
 ## Run or install locally
 
+The default `hudson` command opens the local autonomous TUI described in
+[local agent](local-agent.md), using Anthropic and local file-backed state.
+The worker/server commands below remain the configured HTTP/background workflows.
+
 From the repository root:
 
 ```sh

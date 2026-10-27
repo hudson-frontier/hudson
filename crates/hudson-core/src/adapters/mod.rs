@@ -10,6 +10,7 @@ pub mod chat;
 pub mod http_tools;
 
 pub mod anthropic;
+mod anthropic_stream;
 
 pub mod mcp;
 

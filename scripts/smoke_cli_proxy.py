@@ -35,7 +35,7 @@ try:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         servers.append(server)
     destination, proxy = servers
-    for name in ('hudson-cli', 'hudson'):
+    for name in ('hudson-api-fixture',):
         binary = str(Path('target/debug', name).resolve())
         for proxy_variable in ('http_proxy', 'all_proxy'):
             for hostname in ('127.0.0.1', 'localhost'):
@@ -54,7 +54,7 @@ try:
                 assert not proxy_requests, 'authenticated loopback request reached the proxy'
                 assert destination_requests == [('/health', 'Bearer ' + token)]
                 assert token.encode() not in result.stdout + result.stderr
-    print('PASS authenticated loopback HTTP bypasses environment proxies for both CLI entrypoints.')
+    print('PASS authenticated loopback HTTP bypasses environment proxies for the private API fixture.')
 finally:
     for server in servers:
         server.shutdown()

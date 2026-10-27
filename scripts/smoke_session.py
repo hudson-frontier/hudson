@@ -45,7 +45,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 master, slave = pty.openpty()
 env = os.environ.copy()
 env['HUDSON_SESSION_TEST_TOKEN'] = 'offline-session-token'
-process = subprocess.Popen(['target/debug/hudson','--url',f'http://127.0.0.1:{server.server_port}','--api-token-env','HUDSON_SESSION_TEST_TOKEN'], stdin=slave,stdout=slave,stderr=slave,env=env)
+process = subprocess.Popen(['target/debug/hudson-api-fixture','--url',f'http://127.0.0.1:{server.server_port}','--api-token-env','HUDSON_SESSION_TEST_TOKEN'], stdin=slave,stdout=slave,stderr=slave,env=env)
 os.close(slave)
 output = bytearray()
 def wait_for(text, since=0):
@@ -91,7 +91,7 @@ try:
     assert len([1 for path,_,_ in requests if path.endswith('/input')]) == 1
     assert any(path.endswith('/approval') and body == {'approved':False} for path,body,_ in requests)
     assert 'offline-session-token' not in output.decode()
-    script = subprocess.run(['target/debug/hudson'],input='/quit\n',text=True,capture_output=True)
+    script = subprocess.run(['target/debug/hudson-api-fixture'],input='/quit\n',text=True,capture_output=True)
     assert script.returncode != 0 and 'requires a terminal' in script.stderr
     pathlib.Path('/tmp/hudson-session-transcript.txt').write_bytes(output)
     print('interactive PTY smoke passed: task, waits/reply, results, reopen, controls, auth, escape safety, no implicit project uploads')

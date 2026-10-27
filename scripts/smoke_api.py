@@ -1,7 +1,7 @@
 """Non-Rust HTTP client: durable approval/restart and controls during model IO.
 
 Uses only loopback model/tool stubs and a dedicated local PostgreSQL namespace.
-Run after cargo build -p hudson-server -p hudson-cli.
+Run after cargo build -p hudson-server -p hudson-api-fixture.
 """
 import http.server
 import json
@@ -15,6 +15,8 @@ import time
 import urllib.request
 import urllib.error
 import uuid
+
+from operator_cli import command as operator_command
 
 executed = []
 model_calls = []
@@ -101,7 +103,7 @@ try:
 
         assert request('GET', '/health') == {'mode': 'configured', 'durable': True}
         def cli(*arguments, stdin=None, success=True):
-            result = subprocess.run(['target/debug/hudson-cli', '--url', api] + list(arguments),
+            result = subprocess.run([*operator_command(), '--url', api, *arguments],
                                     input=stdin, env=env, capture_output=True, text=True, timeout=10)
             if not success:
                 assert result.returncode != 0, 'invalid CLI input was accepted'

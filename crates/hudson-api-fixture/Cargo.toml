@@ -1,6 +1,6 @@
 [package]
-name = "hudson-cli"
-default-run = "hudson-cli"
+name = "hudson-api-fixture"
+default-run = "hudson-api-fixture"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,7 @@ publish.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Internal HTTP conformance fixture; install the standalone hudson-cli for operation.
 [dependencies]
 clap.workspace = true
 uuid.workspace = true
@@ -24,9 +25,5 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 workspace = true
 
 [[bin]]
-name = "hudson"
-path = "src/bin/hudson.rs"
-
-[[bin]]
-name = "hudson-cli"
+name = "hudson-api-fixture"
 path = "src/main.rs"

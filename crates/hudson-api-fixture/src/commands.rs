@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(about = "Client for the local Hudson agent API")]
+#[command(about = "Internal Hudson API test fixture; use the standalone hudson CLI for operation")]
 pub struct Args {
     #[arg(long, default_value = "http://127.0.0.1:4318")]
     pub url: String,

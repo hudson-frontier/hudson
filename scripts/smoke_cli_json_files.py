@@ -1,4 +1,4 @@
-"""Local JSON file and explicit-stdin regressions for both legacy CLI entrypoints."""
+"""Local JSON file and explicit-stdin regressions for the private API fixture."""
 import http.server
 import json
 import os
@@ -32,7 +32,7 @@ environment = os.environ.copy()
 for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
     environment.pop(name, None)
 try:
-    with tempfile.TemporaryDirectory(prefix='hudson-cli-json-') as directory:
+    with tempfile.TemporaryDirectory(prefix='hudson-api-fixture-json-') as directory:
         protected = Path(directory, 'protected.json')
         protected.write_bytes(raw)
         protected.chmod(0o600)
@@ -40,7 +40,7 @@ try:
         link.symlink_to(protected)
         fifo = Path(directory, 'fifo.json')
         os.mkfifo(fifo)
-        for name in ('hudson-cli', 'hudson'):
+        for name in ('hudson-api-fixture',):
             binary = str(Path('target/debug', name).resolve())
             for source, allowed in ((link, False), (fifo, False), (protected, True), ('-', True)):
                 for action, path in (('publish-tool', '/tools'), ('publish-agent', '/agents'), ('start', '/runs')):
@@ -58,7 +58,7 @@ try:
                     else:
                         assert not requests and not result.stdout
                         assert b'json-file-fixture-secret' not in result.stderr
-    print('PASS JSON inputs: no symlink/special-file requests, bounded FIFO rejection, regular files and explicit stdin for both CLI entrypoints.')
+    print('PASS JSON inputs: no symlink/special-file requests, bounded FIFO rejection, regular files and explicit stdin for the private API fixture.')
 finally:
     server.shutdown()
     server.server_close()

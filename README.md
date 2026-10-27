@@ -44,34 +44,43 @@ Follow the [development guide](docs/development.md) for prerequisites and covera
 The separately distributed [Hudson CLI](https://github.com/hudson-frontier/hudson-cli#installation)
 connects to an existing service with `hudson agent`. Installing that client and
 building a backend are separate setup steps.
+The backend workspace does not install a `hudson` or `hudson-cli` executable.
+Its worker, server, credential utility, and Temporal host are service and
+development tools; use the standalone CLI for normal agent operation.
 
 ## Run an agent
 
-Validate the example configuration without credentials or a database:
+Start a configured backend with `OPENAI_API_KEY` in its process environment:
 
 ```sh
-cargo run --locked -p hudson-worker -- --config examples/analyst.json --check
+cargo run --locked -p hudson-server -- --config examples/analyst.json
 ```
 
-Set `OPENAI_API_KEY` in the worker's process environment, then submit a task:
+In another terminal, use the installed Hudson CLI:
 
 ```sh
-cargo run --locked -p hudson-worker -- --config examples/analyst.json \
-  --task "Find the mean of 10, 20, and 30"
+hudson agent health
+hudson agent start --task "Find the mean of 10, 20, and 30" --request-key analysis-001
+hudson agent follow RUN_UUID
+hudson agent session
 ```
 
-The default provider is OpenAI. Anthropic, Gemini, Ollama, and compatible endpoints
-are configured through the [model settings](docs/development.md#models).
-For a fixture-only preview with no provider calls, run
-`cargo run --locked -p hudson-worker -- --demo`.
+Copy the returned `run_id` into `follow`. Submission returns before completion;
+stopping observation leaves the run active. `session` opens an interactive terminal
+against the running service. The CLI operates runs through the HTTP API; service
+installation and worker startup remain backend administration steps.
 
-Structured tasks use `--input-file`; `--input-file -` selects stdin. The
+The default provider is OpenAI. Configure Anthropic, Gemini, Ollama, or compatible
+endpoints through the [model settings](docs/development.md#models).
+Structured tasks use `hudson agent start --input-file task.json`;
+`--input-file -` selects stdin. The
 [structured-data example](examples/data-agent.json) shows an input schema and
-output contract.
+output contract. The backend [development examples](#backend-development-examples)
+include configuration validation and an offline fixture with no provider calls.
 
 ## Connect tools and skills
 
-Run the example Python tool service in one terminal:
+For backend development, run the example Python tool service in one terminal:
 
 ```sh
 python3 examples/python-tool/server.py
@@ -102,7 +111,7 @@ Agent instructions and skill files do not grant new authority.
 
 ## Keep runs in PostgreSQL
 
-With a dedicated PostgreSQL database named `hudson` available on the local
+For a direct backend worker invocation, with a dedicated PostgreSQL database named `hudson` available on the local
 `/tmp` socket, retain runs across processes:
 
 ```sh
@@ -198,6 +207,32 @@ workload runtime. Effectful sandbox integration remains unfinished; its
 
 ## Developing
 
+### Backend development examples
+
+Validate the example configuration without credentials or a database:
+
+```sh
+cargo run --locked -p hudson-worker -- --config examples/analyst.json --check
+```
+
+To exercise the worker directly, set `OPENAI_API_KEY` in its environment:
+
+```sh
+cargo run --locked -p hudson-worker -- --config examples/analyst.json \
+  --task "Find the mean of 10, 20, and 30"
+```
+
+For a fixture-only preview with no provider calls:
+
+```sh
+cargo run --locked -p hudson-worker -- --demo
+```
+
+The worker is a backend development and execution host. Normal operator
+submissions use the installed `hudson agent` client described above.
+
+### Verification
+
 With the pinned toolchain, development prerequisites, and a dedicated PostgreSQL
 test database on `/tmp`:
 
@@ -218,7 +253,7 @@ runs a subset; see the [verification guide](docs/development.md#verification).
 | [crates/hudson-worker](crates/hudson-worker) | Configured local tasks and operator commands |
 | [crates/hudson-server](crates/hudson-server) | Loopback admission and inspection API |
 | [crates/hudson-temporal](crates/hudson-temporal) | Durable scheduling and team execution |
-| [crates/hudson-cli](crates/hudson-cli) | Repository HTTP client and compatibility entrypoints |
+| [crates/hudson-api-fixture](crates/hudson-api-fixture) | Private HTTP conformance fixture used by backend tests |
 
 ## Contributing
 

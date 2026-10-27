@@ -7,10 +7,10 @@ provider options, policies, goals, and budgets keep their existing authority.
 ## Queued input
 
 ```sh
-hudson-cli steer RUN_UUID --text 'Use the latest report' --request-key direction-1
-hudson-cli follow-up RUN_UUID --text 'Add a summary' --request-key summary-1
-hudson-cli inbox RUN_UUID
-hudson-cli clear-inbox RUN_UUID
+hudson agent steer RUN_UUID --text 'Use the latest report' --request-key direction-1
+hudson agent follow-up RUN_UUID --text 'Add a summary' --request-key summary-1
+hudson agent inbox RUN_UUID
+hudson agent clear-inbox RUN_UUID
 ```
 
 The HTTP controls are `POST`, `GET`, and `DELETE /runs/{id}/messages`. POST accepts

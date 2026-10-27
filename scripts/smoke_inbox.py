@@ -111,7 +111,7 @@ try:
             return found.group()
 
         def cli(api, *arguments):
-            result = subprocess.run(['target/debug/hudson-cli', '--url', api, *arguments],
+            result = subprocess.run(['target/debug/hudson-api-fixture', '--url', api, *arguments],
                                     check=True, capture_output=True, text=True, timeout=15)
             return json.loads(result.stdout)
 

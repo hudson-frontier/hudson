@@ -85,6 +85,8 @@ impl Drop for Fixture {
     }
 }
 fn read_request(socket: &mut TcpStream) -> Value {
+    // Accepted sockets can inherit the listener's nonblocking flag on macOS.
+    socket.set_nonblocking(false).unwrap();
     socket
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();

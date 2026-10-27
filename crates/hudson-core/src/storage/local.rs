@@ -277,13 +277,18 @@ impl LocalFile {
         };
         file.write_all(&snapshot.bytes).map_err(io_error)?;
         file.sync_all().map_err(io_error)?;
-        renameat(
+        if let Err(error) = renameat(
             &self.directory,
             name.as_os_str(),
             &self.directory,
             self.name.as_os_str(),
-        )
-        .map_err(|error| io_error(error.into()))?;
+        ) {
+            // POSIX permits an uncertain replacement when rename returns EIO.
+            if error == rustix::io::Errno::IO {
+                self.unavailable = true;
+            }
+            return Err(io_error(error.into()));
+        }
         temporary.persisted = true;
         // A directory-sync failure leaves the durability of the rename uncertain.
         // Block further access until the host reopens and inspects the saved state.
@@ -464,6 +469,70 @@ mod tests {
         assert!(store
             .read(|data| Ok(data.model_bindings.is_empty()))
             .unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn real_directory_sync_failure_blocks_stale_state_until_reopen() {
+        use rustix::fs::{openat, Mode, OFlags, CWD};
+        let directory = directory();
+        let path = directory.path().join("state.json");
+        let key = (
+            "workspace".into(),
+            crate::models::VersionRef {
+                id: "agent".into(),
+                version: 1,
+            },
+        );
+        let original = MemoryStore::local_file(&path).unwrap();
+        original
+            .transact(|data| {
+                data.model_bindings.insert(key.clone(), "original".into());
+                Ok(())
+            })
+            .unwrap();
+        let before = fs::read(&path).unwrap();
+        drop(original);
+        // O_PATH supports relative opens and replacement but cannot be fsynced.
+        let capability = File::from(
+            openat(
+                CWD,
+                directory.path(),
+                OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .unwrap(),
+        );
+        assert!(capability.sync_all().is_err());
+        let uncertain = MemoryStore::local_file_in(&capability, "state.json").unwrap();
+        assert!(uncertain
+            .transact(|data| {
+                data.model_bindings.insert(key.clone(), "replaced".into());
+                Ok(())
+            })
+            .is_err());
+        assert_ne!(
+            before,
+            fs::read(&path).unwrap(),
+            "failure must occur after replacement"
+        );
+        assert!(uncertain.read(|_| Ok(())).is_err());
+        let mut callback_ran = false;
+        assert!(uncertain
+            .transact(|_| {
+                callback_ran = true;
+                Ok(())
+            })
+            .is_err());
+        assert!(!callback_ran);
+        drop(uncertain);
+        let reopened = MemoryStore::local_file(&path).unwrap();
+        assert_eq!(
+            reopened
+                .read(|data| Ok(data.model_bindings[&key].clone()))
+                .unwrap(),
+            "replaced"
+        );
     }
     #[test]
     fn local_state_has_exclusive_ownership_durable_commit_and_rollback() {

@@ -27,8 +27,8 @@ arbitrary programs running as the same OS user.
 
 One host holds the snapshot's lifetime lock; cloned store handles share that
 ownership. Transactions serialize and sync an atomic snapshot before returning.
-Failed transactions preserve the prior in-memory state. A directory-sync failure
-after replacement leaves durability uncertain and blocks further use of the
+Failed transactions preserve the prior in-memory state. A rename I/O error or a
+directory-sync failure leaves durability uncertain and blocks further use of the
 handle; reopen and inspect persisted runs before deciding how to proceed.
 Snapshots are capped at 64 MiB while reading and serializing. The backend still
 clones its transaction state and rewrites the snapshot, so this store suits a

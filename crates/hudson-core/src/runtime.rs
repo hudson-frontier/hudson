@@ -20,6 +20,7 @@ pub struct Runtime<B, M, T> {
 pub(crate) enum SubmissionScope {
     Scheduled(Option<crate::scheduling::ScheduleTarget>),
     Experiment(crate::experiments::RunScope),
+    Conversation(Uuid),
 }
 
 impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
@@ -44,6 +45,26 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         request_key: Option<String>,
     ) -> Result<Uuid> {
         self.submit_with_goal(actor, agent_ref, input, request_key, None)
+    }
+
+    /// Start a new immutable turn from a completed run's portable history.
+    /// The previous task remains completed; its effects are never re-executed.
+    pub fn submit_turn(
+        &self,
+        actor: &Actor,
+        agent_ref: VersionRef,
+        input: Value,
+        request_key: Option<String>,
+        previous: Uuid,
+    ) -> Result<Uuid> {
+        self.submit_scoped(
+            actor,
+            agent_ref,
+            input,
+            request_key,
+            None,
+            SubmissionScope::Conversation(previous),
+        )
     }
 
     pub fn submit_with_goal(
@@ -86,9 +107,10 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         goal: Option<Goal>,
         scope: SubmissionScope,
     ) -> Result<Uuid> {
-        let (schedule, experiment) = match scope {
-            SubmissionScope::Scheduled(schedule) => (schedule, None),
-            SubmissionScope::Experiment(scope) => (None, Some(scope)),
+        let (schedule, experiment, previous) = match scope {
+            SubmissionScope::Scheduled(schedule) => (schedule, None, None),
+            SubmissionScope::Experiment(scope) => (None, Some(scope), None),
+            SubmissionScope::Conversation(previous) => (None, None, Some(previous)),
         };
         if let Some(target) = &schedule {
             target.validate()?;
@@ -113,9 +135,10 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         {
             return Err(Error::Invalid("request key length".into()));
         }
-        let input_digest = match &goal {
-            Some(goal) => definitions::digest(&(agent_ref.clone(), &input, goal))?,
-            None => definitions::digest(&(agent_ref.clone(), &input))?,
+        let input_digest = match (&goal, previous) {
+            (_, Some(previous)) => definitions::digest(&(agent_ref.clone(), &input, previous))?,
+            (Some(goal), None) => definitions::digest(&(agent_ref.clone(), &input, goal))?,
+            (None, None) => definitions::digest(&(agent_ref.clone(), &input))?,
         };
         self.store.transact(|d| {
             if let Some(scope) = &experiment {
@@ -154,6 +177,21 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             }
             let meta = Metadata::new(&actor.workspace_id);
             let id = meta.id;
+            let mut initial = self.engine.initial_state();
+            if let Some(previous) = previous {
+                if initial.backend != "hudson" || initial.backend_version != 1 {
+                    return Err(Error::Unsupported("conversation turns require the default Hudson backend".into()));
+                }
+                let prior = d.run(actor, previous)?;
+                if prior.status != RunStatus::Completed || prior.agent_ref != agent_ref || d.schedule_requests.contains_key(&previous) {
+                    return Err(Error::Conflict("conversation continuation requires a completed local run with the same agent".into()));
+                }
+                let history = hudson_harness::agent_loop::history(&prior.state)?;
+                if history.archive.is_some() {
+                    return Err(Error::Unsupported("cross-run archived history requires explicit artifact transfer".into()));
+                }
+                initial = hudson_harness::agent_loop::with_history(&initial, history)?;
+            }
             let run = Run {
                 meta,
                 agent_ref,
@@ -167,7 +205,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 status: RunStatus::Queued,
                 reason: None,
                 wait: None,
-                state: self.engine.initial_state(),
+                state: initial,
                 pending_operations: vec![],
                 next_input: Some(Input::Start { value: input }),
                 limits: agent.limits.clone(),

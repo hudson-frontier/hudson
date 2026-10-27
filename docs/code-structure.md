@@ -31,12 +31,14 @@ crates/
     storage/
       memory.rs        transactional in-memory state and shared store handle
       postgres.rs      one locked JSONB state document per namespace
+      local.rs         private Unix snapshots for one local host
       pairs.rs         serialization of composite map keys
     adapters/
       harness.rs       project core definitions into loop configuration
       models.rs        ModelExecutor extension boundary
       chat.rs          OpenAI-compatible text/function protocol
       anthropic.rs     native Messages text/function protocol
+      anthropic_stream.rs bounded SSE assembly; partial arguments stay private
       tools.rs         ToolExecutor and trusted Rust ToolRegistry
       http_tools.rs    configured HTTP tool transport
       sandbox.rs       explicit unsupported Sandbox guard
@@ -99,6 +101,8 @@ keeps each child executor and routes resume by the run’s pinned Agent version.
 Child approval therefore uses that child’s provider and tool bindings, including
 after restart. Library
 applications can construct `Runtime` directly with custom adapters.
+The [local runtime APIs](local-runtime.md) provide private snapshots, immutable
+conversation turns, and display-only model streaming for the standalone CLI.
 
 The separate Temporal host schedules the same runtime through activities. It
 uses `ScheduledTree` to give specialists independent executor locks and Temporal

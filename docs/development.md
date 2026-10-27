@@ -355,6 +355,10 @@ downloads or builds another repository's client.
 
 ## Evaluation and extension points
 
+The [local runtime library guide](local-runtime.md) describes Unix snapshot
+storage, immutable conversation turns, and opt-in Anthropic text observation for
+hosts such as the standalone CLI.
+
 [Evaluation](evaluation.md) documents JSON cases, `--evaluate`, and
 `--compare-config`. Cases use normal runtime controls, retain their run identities,
 and assess expected outputs separately from runtime completion. Use isolated tools.

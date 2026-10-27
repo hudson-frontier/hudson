@@ -720,6 +720,27 @@ fn validate_tree(
     Ok(())
 }
 
+fn validate_provider_alias(name: &str, provider: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let limit = match provider {
+        "" | "openai" => 64,
+        "anthropic" => 128,
+        // Other configured transports can have different naming extensions.
+        _ => return Ok(()),
+    };
+    if name.is_empty()
+        || name.len() > limit
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(format!(
+            "model tool names require 1 to {limit} ASCII letters, digits, underscores or hyphens"
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error::Error>> {
     if definition.name.trim().is_empty()
         || definition.instructions.trim().is_empty()
@@ -788,6 +809,7 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
         names.insert("load_skill".to_owned());
     }
     for tool in &definition.http_tools {
+        validate_provider_alias(&tool.name, &definition.provider)?;
         if tool.name.trim().is_empty() || !names.insert(tool.name.clone()) {
             return Err("empty or duplicate tool name".into());
         }
@@ -812,6 +834,7 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
             format!("delegate_{}", child.name),
             format!("join_delegate_{}", child.name),
         ] {
+            validate_provider_alias(&name, &definition.provider)?;
             if !names.insert(name) {
                 return Err("delegation tool name conflicts with another tool".into());
             }
@@ -1001,6 +1024,62 @@ mod tests {
     use super::*;
     fn definition(name: &str) -> Definition {
         serde_json::from_value(serde_json::json!({"name":name,"instructions":"help"})).unwrap()
+    }
+
+    #[test]
+    fn provider_http_aliases_reject_invalid_names_before_model_io() {
+        for name in [
+            "lookup order".into(),
+            "lookup.order".into(),
+            "lookup/order".into(),
+            "café".into(),
+            "x".repeat(65),
+        ] {
+            let config: Definition = serde_json::from_value(serde_json::json!({
+                "name":"root", "instructions":"help", "provider":"openai", "model":"fixture",
+                "endpoint":"http://127.0.0.1:1/model",
+                "http_tools":[{"name":name, "description":"lookup", "endpoint":"http://127.0.0.1:1/tool", "input_schema":{"type":"object"}, "effect":"read"}]
+            })).unwrap();
+            assert!(
+                validate_contracts(&config).is_err(),
+                "accepted unusable provider alias {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_delegation_alias_limit_includes_join_prefix() {
+        let mut config = definition("root");
+        config.subagents = vec![definition(&"x".repeat(51))];
+        // delegate_ + 51 characters fits OpenAI's 64-character limit; the longer
+        // join_delegate_ alias does not. No model or tool endpoint is contacted.
+        assert!(validate_contracts(&config).is_err());
+    }
+
+    #[test]
+    fn provider_alias_boundaries_retain_valid_names_and_other_transports() {
+        for (provider, limit) in [("", 64), ("openai", 64), ("anthropic", 128)] {
+            let name = format!("A_{}-", "x".repeat(limit - 3));
+            let mut config: Definition = serde_json::from_value(serde_json::json!({
+                "name":"friendly root 🚀", "instructions":"help", "provider":provider, "model":"fixture",
+                "http_tools":[{"name":name, "description":"lookup", "endpoint":"http://127.0.0.1:1/tool", "input_schema":{"type":"object"}, "effect":"read"}]
+            })).unwrap();
+            validate_contracts(&config).unwrap();
+            config.http_tools[0].name.push('x');
+            assert!(validate_contracts(&config).is_err());
+            config.http_tools.clear();
+            config.subagents = vec![definition(&"x".repeat(limit - "join_delegate_".len()))];
+            validate_contracts(&config).unwrap();
+            config.subagents[0].name.push('x');
+            assert!(validate_contracts(&config).is_err());
+        }
+        for provider in ["gemini", "ollama"] {
+            let config: Definition = serde_json::from_value(serde_json::json!({
+                "name":"root", "instructions":"help", "provider":provider, "model":"fixture",
+                "http_tools":[{"name":"custom.tool:name", "description":"lookup", "endpoint":"http://127.0.0.1:1/tool", "input_schema":{"type":"object"}, "effect":"read"}]
+            })).unwrap();
+            validate_contracts(&config).unwrap();
+        }
     }
     #[test]
     fn reasoning_is_validated_and_pinned_without_changing_default_bindings() {

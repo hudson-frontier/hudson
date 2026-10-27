@@ -94,6 +94,12 @@ nonsecret model transport settings remain pinned; credentials can rotate. Identi
 definition publication is atomic, so concurrent startup accepts matching versions
 and rejects changed content even across separate PostgreSQL connections.
 
+Configured HTTP tool names are also their model-facing aliases. OpenAI/default
+aliases require 1–64 ASCII letters, digits, underscores or hyphens; Anthropic
+allows up to 128. Both generated `delegate_` and `join_delegate_` names must fit
+the parent provider's limit, including their prefixes. Invalid aliases fail
+configuration validation before provider calls; identifiers are never renamed.
+
 A goal looks like:
 
 ```json

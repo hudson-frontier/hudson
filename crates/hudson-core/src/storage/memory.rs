@@ -96,6 +96,7 @@ impl Data {
 pub struct MemoryStore {
     pub(super) data: Arc<Mutex<Data>>,
     pub(super) postgres: Option<Arc<Mutex<super::postgres::Postgres>>>,
+    pub(super) local: Option<Arc<Mutex<super::local::LocalFile>>>,
 }
 
 impl MemoryStore {
@@ -103,6 +104,7 @@ impl MemoryStore {
         Self {
             data: Arc::new(Mutex::new(data)),
             postgres: None,
+            local: None,
         }
     }
 
@@ -121,6 +123,12 @@ impl MemoryStore {
         })
     }
     pub(crate) fn transact<T>(&self, f: impl FnOnce(&mut Data) -> Result<T>) -> Result<T> {
+        if let Some(file) = &self.local {
+            return file
+                .lock()
+                .map_err(|_| Error::Conflict("local store poisoned".into()))?
+                .transact(f);
+        }
         if let Some(database) = &self.postgres {
             return database
                 .lock()
@@ -137,6 +145,12 @@ impl MemoryStore {
         Ok(output)
     }
     pub(crate) fn read<T>(&self, f: impl FnOnce(&Data) -> Result<T>) -> Result<T> {
+        if let Some(file) = &self.local {
+            return file
+                .lock()
+                .map_err(|_| Error::Conflict("local store poisoned".into()))?
+                .read(f);
+        }
         if let Some(database) = &self.postgres {
             return database
                 .lock()

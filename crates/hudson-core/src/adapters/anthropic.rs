@@ -2,10 +2,16 @@
 use super::{chat::ChatModel, models::ModelExecutor, tools::ExecutionError};
 use hudson_harness::{Content, ModelRequest, ModelResponse, Role, ToolCall, ToolOutcome};
 use serde_json::{json, Value};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+type TextObserver = Box<dyn FnMut(&str) + Send>;
 pub struct AnthropicModel {
     transport: ChatModel,
     max_tokens: u32,
     reasoning: Option<super::reasoning::Reasoning>,
+    streaming: Option<(TextObserver, Arc<AtomicBool>)>,
 }
 fn invalid() -> ExecutionError {
     ExecutionError::Failed("unsupported or malformed Anthropic message".into())
@@ -16,7 +22,18 @@ impl AnthropicModel {
             transport: ChatModel::new(endpoint, key, max_tokens)?,
             max_tokens,
             reasoning: None,
+            streaming: None,
         })
+    }
+    /// Text deltas are display-only. A response becomes executable only after a
+    /// complete, validated message_stop. Cancellation never retries a request.
+    pub fn with_streaming(
+        mut self,
+        observer: impl FnMut(&str) + Send + 'static,
+        cancelled: Arc<AtomicBool>,
+    ) -> Self {
+        self.streaming = Some((Box::new(observer), cancelled));
+        self
     }
     pub fn with_reasoning(
         mut self,
@@ -39,7 +56,19 @@ impl ModelExecutor for AnthropicModel {
         if let Some(reasoning) = &self.reasoning {
             reasoning.apply(&mut body, true);
         }
-        decode(self.transport.post_json(&body, true)?)
+        let response = if let Some((observer, cancelled)) = &mut self.streaming {
+            body["stream"] = json!(true);
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(ExecutionError::Failed(
+                    "cancelled before model dispatch".into(),
+                ));
+            }
+            self.transport
+                .post_anthropic_stream(&body, observer, cancelled)?
+        } else {
+            self.transport.post_json(&body, true)?
+        };
+        decode(response)
     }
 }
 fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionError> {

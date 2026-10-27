@@ -54,6 +54,8 @@ Event pages contain 1–1000 events. Observation has explicit total page/poll
 budgets and bounded poll intervals. Exhaustion reports the last processed
 cursor. HTTP and transport failures stop observation, preserving previously
 yielded cursors. The client makes no automatic retries or extra model calls.
+Truncated HTTP responses are transport failures even when the received prefix
+contains valid JSON.
 
 Reuse the exact publication/submission key and body after an ambiguous failure;
 never invent a new key to retry a write. Reusing a version/key with changed

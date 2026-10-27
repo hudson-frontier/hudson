@@ -18,6 +18,8 @@ class ClientTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
             def log_message(self, *_):
                 pass
 
@@ -38,7 +40,9 @@ class ClientTests(unittest.TestCase):
                 status, data, headers = owner.respond(self.command, self.path, body)
                 encoded = data if isinstance(data, bytes) else json.dumps(data).encode()
                 self.send_response(status)
-                self.send_header('Content-Length', str(len(encoded)))
+                if (not any(name.lower() in ('content-length', 'transfer-encoding') for name in headers)
+                        and headers.get('Connection', '').lower() != 'close'):
+                    self.send_header('Content-Length', str(len(encoded)))
                 for name, value in headers.items():
                     self.send_header(name, value)
                 self.end_headers()
@@ -138,6 +142,33 @@ class ClientTests(unittest.TestCase):
         self.respond = lambda *_: (200, b'NaN', {})
         with self.assertRaisesRegex(HudsonError, 'valid JSON'):
             self.client.health()
+
+    def test_incomplete_mutation_responses_fail_without_retry_or_echoed_secrets(self):
+        body = json.dumps({'accepted': TOKEN}).encode()
+        responses = [
+            (body, {'Content-Length': str(len(body) + 10), 'Connection': 'close'}),
+            (f'{len(body):x}\r\n'.encode() + body + b'\r\n',
+             {'Transfer-Encoding': 'chunked', 'Connection': 'close'}),
+        ]
+        for payload, headers in responses:
+            with self.subTest(headers=headers):
+                self.requests.clear()
+                self.respond = lambda *_, payload=payload, headers=headers: (201, payload, headers)
+                with self.assertRaisesRegex(HudsonError, 'HTTP transport failed') as error:
+                    self.client.start('task', request_key='same-key')
+                self.assertNotIn(TOKEN, str(error.exception))
+                self.assertEqual(len(self.requests), 1)
+                self.assertEqual(self.requests[0][0:2], ('POST', '/runs'))
+                self.assertEqual(self.requests[0][3]['request_key'], 'same-key')
+
+    def test_complete_bounded_responses_accept_all_supported_framing(self):
+        for payload, headers in [
+                (b'{}', {}),
+                (b'{}', {'Connection': 'close'}),
+                (b'2\r\n{}\r\n0\r\n\r\n', {'Transfer-Encoding': 'chunked', 'Connection': 'close'})]:
+            with self.subTest(headers=headers):
+                self.respond = lambda *_, payload=payload, headers=headers: (200, payload, headers)
+                self.assertEqual(HudsonClient(self.url, max_response_bytes=2).health(), {})
 
     def test_event_pages_reject_other_runs_and_invalid_sequences(self):
         for page in [[{'run_id': OTHER, 'sequence': 2}],

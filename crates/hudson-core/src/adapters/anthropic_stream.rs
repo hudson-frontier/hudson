@@ -10,82 +10,6 @@ fn unknown() -> ExecutionError {
     ExecutionError::Unknown("model stream interrupted or malformed; response is unavailable".into())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn events(values: Vec<Value>) -> Vec<u8> {
-        values
-            .into_iter()
-            .map(|value| {
-                format!(
-                    "event: {}\ndata: {value}\n\n",
-                    value["type"].as_str().unwrap()
-                )
-            })
-            .collect::<String>()
-            .into_bytes()
-    }
-    fn start() -> Value {
-        json!({"type":"message_start","message":{"content":[],"usage":{"input_tokens":8,"output_tokens":0}}})
-    }
-    fn finish(reason: &str) -> Vec<Value> {
-        vec![
-            json!({"type":"message_delta","delta":{"stop_reason":reason},"usage":{"output_tokens":3}}),
-            json!({"type":"message_stop"}),
-        ]
-    }
-    #[test]
-    fn streamed_text_and_complete_tool_arguments_are_assembled() {
-        let mut values = vec![
-            start(),
-            json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
-            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Inspecting"}}),
-            json!({"type":"content_block_stop","index":0}),
-            json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"read-1","name":"read_file","input":{}}}),
-            json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}),
-            json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}),
-            json!({"type":"content_block_stop","index":1}),
-        ];
-        values.extend(finish("tool_use"));
-        let mut text = String::new();
-        let value = read(
-            events(values).as_slice(),
-            &mut |part| text.push_str(part),
-            &AtomicBool::new(false),
-        )
-        .unwrap();
-        assert_eq!(text, "Inspecting");
-        assert_eq!(value["content"][1]["input"], json!({"path":"a.txt"}));
-        assert_eq!(value["usage"]["input_tokens"], 8);
-        assert_eq!(value["usage"]["output_tokens"], 3);
-    }
-    #[test]
-    fn partial_or_invalid_streams_never_produce_executable_responses() {
-        let partial = events(vec![
-            start(),
-            json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"write","name":"shell","input":{}}}),
-            json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"write"}}),
-        ]);
-        assert!(matches!(
-            read(partial.as_slice(), &mut |_| {}, &AtomicBool::new(false)),
-            Err(ExecutionError::Unknown(_))
-        ));
-        for data in [
-            events(vec![
-                json!({"type":"message_start","message":{"content":[],"usage":0}}),
-            ]),
-            vec![b'x'; 131_073],
-        ] {
-            assert!(read(data.as_slice(), &mut |_| {}, &AtomicBool::new(false)).is_err());
-        }
-        assert!(read(
-            events(vec![start()]).as_slice(),
-            &mut |_| {},
-            &AtomicBool::new(true)
-        )
-        .is_err());
-    }
-}
 fn append(block: &mut Value, field: &str, value: &str) -> Result<(), ExecutionError> {
     let Value::String(text) = &mut block[field] else {
         return Err(unknown());
@@ -213,5 +137,82 @@ pub(super) fn read(
             }
             _ => return Err(unknown()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn events(values: Vec<Value>) -> Vec<u8> {
+        values
+            .into_iter()
+            .map(|value| {
+                format!(
+                    "event: {}\ndata: {value}\n\n",
+                    value["type"].as_str().unwrap()
+                )
+            })
+            .collect::<String>()
+            .into_bytes()
+    }
+    fn start() -> Value {
+        json!({"type":"message_start","message":{"content":[],"usage":{"input_tokens":8,"output_tokens":0}}})
+    }
+    fn finish(reason: &str) -> Vec<Value> {
+        vec![
+            json!({"type":"message_delta","delta":{"stop_reason":reason},"usage":{"output_tokens":3}}),
+            json!({"type":"message_stop"}),
+        ]
+    }
+    #[test]
+    fn streamed_text_and_complete_tool_arguments_are_assembled() {
+        let mut values = vec![
+            start(),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Inspecting"}}),
+            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"read-1","name":"read_file","input":{}}}),
+            json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}),
+            json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}),
+            json!({"type":"content_block_stop","index":1}),
+        ];
+        values.extend(finish("tool_use"));
+        let mut text = String::new();
+        let value = read(
+            events(values).as_slice(),
+            &mut |part| text.push_str(part),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(text, "Inspecting");
+        assert_eq!(value["content"][1]["input"], json!({"path":"a.txt"}));
+        assert_eq!(value["usage"]["input_tokens"], 8);
+        assert_eq!(value["usage"]["output_tokens"], 3);
+    }
+    #[test]
+    fn partial_or_invalid_streams_never_produce_executable_responses() {
+        let partial = events(vec![
+            start(),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"write","name":"shell","input":{}}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"write"}}),
+        ]);
+        assert!(matches!(
+            read(partial.as_slice(), &mut |_| {}, &AtomicBool::new(false)),
+            Err(ExecutionError::Unknown(_))
+        ));
+        for data in [
+            events(vec![
+                json!({"type":"message_start","message":{"content":[],"usage":0}}),
+            ]),
+            vec![b'x'; 131_073],
+        ] {
+            assert!(read(data.as_slice(), &mut |_| {}, &AtomicBool::new(false)).is_err());
+        }
+        assert!(read(
+            events(vec![start()]).as_slice(),
+            &mut |_| {},
+            &AtomicBool::new(true)
+        )
+        .is_err());
     }
 }

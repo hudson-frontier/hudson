@@ -16,51 +16,6 @@ pub(super) struct LocalFile {
     data: Data,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn local_state_has_exclusive_ownership_durable_commit_and_rollback() {
-        let directory = std::env::temp_dir().join(format!("hudson-store-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&directory).unwrap();
-        let path = directory.join("state.json");
-        let store = MemoryStore::local_file(&path).unwrap();
-        assert!(MemoryStore::local_file(&path).is_err());
-        store
-            .transact(|data| {
-                data.model_bindings.insert(
-                    (
-                        "workspace".into(),
-                        crate::models::VersionRef {
-                            id: "agent".into(),
-                            version: 1,
-                        },
-                    ),
-                    "saved".into(),
-                );
-                Ok(())
-            })
-            .unwrap();
-        let before = fs::read(&path).unwrap();
-        assert!(store
-            .transact(|data| {
-                data.model_bindings.clear();
-                Err::<(), _>(Error::Denied)
-            })
-            .is_err());
-        assert_eq!(before, fs::read(&path).unwrap());
-        drop(store);
-        let reopened = MemoryStore::local_file(&path).unwrap();
-        assert_eq!(
-            reopened.read(|data| Ok(data.model_bindings.len())).unwrap(),
-            1
-        );
-        drop(reopened);
-        fs::write(&path, b"{\"schema_version\":99,\"state\":{}}").unwrap();
-        assert!(MemoryStore::local_file(&path).is_err());
-        fs::remove_dir_all(directory).unwrap();
-    }
-}
 fn io_error(_: std::io::Error) -> Error {
     Error::Conflict("local state IO failed; inspect saved state before retrying".into())
 }
@@ -160,5 +115,51 @@ impl LocalFile {
         .map_err(io_error)?;
         self.data = next;
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn local_state_has_exclusive_ownership_durable_commit_and_rollback() {
+        let directory = std::env::temp_dir().join(format!("hudson-store-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("state.json");
+        let store = MemoryStore::local_file(&path).unwrap();
+        assert!(MemoryStore::local_file(&path).is_err());
+        store
+            .transact(|data| {
+                data.model_bindings.insert(
+                    (
+                        "workspace".into(),
+                        crate::models::VersionRef {
+                            id: "agent".into(),
+                            version: 1,
+                        },
+                    ),
+                    "saved".into(),
+                );
+                Ok(())
+            })
+            .unwrap();
+        let before = fs::read(&path).unwrap();
+        assert!(store
+            .transact(|data| {
+                data.model_bindings.clear();
+                Err::<(), _>(Error::Denied)
+            })
+            .is_err());
+        assert_eq!(before, fs::read(&path).unwrap());
+        drop(store);
+        let reopened = MemoryStore::local_file(&path).unwrap();
+        assert_eq!(
+            reopened.read(|data| Ok(data.model_bindings.len())).unwrap(),
+            1
+        );
+        drop(reopened);
+        fs::write(&path, b"{\"schema_version\":99,\"state\":{}}").unwrap();
+        assert!(MemoryStore::local_file(&path).is_err());
+        fs::remove_dir_all(directory).unwrap();
     }
 }

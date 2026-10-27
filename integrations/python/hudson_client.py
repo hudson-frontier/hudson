@@ -125,6 +125,10 @@ class HudsonClient:
                 if not 200 <= response.status < 300:
                     raise HttpError(response.status)
                 raw = response.read(self.max_response_bytes + 1)
+                # A bounded read can return at EOF without rejecting a short body.
+                # Oversized responses retain their separate byte-bound error below.
+                if len(raw) <= self.max_response_bytes and response.length not in (None, 0):
+                    raise http.client.HTTPException('incomplete response body')
         except urllib.error.HTTPError as error:
             status = error.code
             error.close()

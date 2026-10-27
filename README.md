@@ -1,4 +1,4 @@
-# Hudson
+<h1 align="center">Hudson</h1>
 
 <p align="center">
   Build agents with controlled tools, durable execution, and recoverable state.

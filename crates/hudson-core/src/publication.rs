@@ -216,7 +216,7 @@ impl Store {
         images: Vec<hudson_harness::images::Image>,
         target: crate::scheduling::ScheduleTarget,
     ) -> Result<uuid::Uuid> {
-        hudson_harness::images::validate_turn(&images)?;
+        crate::multimodal::validate_turn(&images)?;
         let config = self
             .published_configuration(actor, reference)?
             .for_submission(actor, &turn.request_key)?;
@@ -246,7 +246,7 @@ impl Store {
         mut turn: crate::multimodal::ImageTurn,
         target: crate::scheduling::ScheduleTarget,
     ) -> Result<uuid::Uuid> {
-        hudson_harness::images::validate_turn(&turn.images)?;
+        crate::multimodal::validate_turn(&turn.images)?;
         let config = self
             .published_configuration(actor, reference)?
             .for_submission(actor, &turn.request_key)?;

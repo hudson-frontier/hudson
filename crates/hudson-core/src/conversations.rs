@@ -85,7 +85,8 @@ impl Transcript {
                 "image transcripts require format version 2".into(),
             ));
         }
-        hudson_harness::images::validate_history(&self.messages)?;
+        hudson_harness::images::validate_history(&self.messages)
+            .map_err(|_| Error::Invalid("invalid transferred image history".into()))?;
         for exchange in &self.archived_exchanges {
             if exchange
                 .iter()
@@ -130,7 +131,9 @@ fn validate_messages(messages: &[Message]) -> Result<()> {
             match content {
                 Content::Text { .. } | Content::Json { .. } if message.role != Role::Tool => {}
                 Content::Image { image } if message.role == Role::User => {
-                    image.validate()?;
+                    image
+                        .validate()
+                        .map_err(|_| Error::Invalid("invalid transferred image".into()))?;
                 }
                 Content::ToolCall { call }
                     if message.role == Role::Assistant

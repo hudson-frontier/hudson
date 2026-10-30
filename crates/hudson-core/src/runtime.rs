@@ -178,7 +178,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             SubmissionScope::Images(images, scope) => (images, *scope),
             scope => (Vec::new(), scope),
         };
-        hudson_harness::images::validate_turn(&images)?;
+        crate::multimodal::validate_turn(&images)?;
         let (schedule, experiment, previous, transcript, source_run) = match scope {
             SubmissionScope::Scheduled(schedule) => (schedule, None, None, None, None),
             SubmissionScope::Experiment(scope) => (None, Some(scope), None, None, None),

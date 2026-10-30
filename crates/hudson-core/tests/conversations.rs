@@ -71,7 +71,9 @@ fn cycle(store: Store) -> (uuid::Uuid, uuid::Uuid) {
                     call_id: "lookup-1".into(),
                     name: "lookup_order".into(),
                     arguments: json!({"order_id":"123"}),
-                    provider_metadata: json!({"opaque":"provider-private-continuation"}),
+                    provider_metadata: json!({"opaque":"provider-private-continuation","chat_assistant_text":"visible source explanation",
+                        "anthropic_prefix":[{"type":"thinking","thinking":"private hidden reasoning","signature":"opaque signature"},{"type":"text","text":"visible source prefix"}],
+                        "anthropic_suffix":[{"type":"text","text":"visible source suffix"}]}),
                 }],
             },
             ModelResponse::Final {
@@ -92,6 +94,14 @@ fn cycle(store: Store) -> (uuid::Uuid, uuid::Uuid) {
     let transcript = store.export_transcript(&actor, prior).unwrap();
     let encoded = serde_json::to_string(&transcript).unwrap();
     assert!(!encoded.contains("provider-private-continuation"));
+    assert!(!encoded.contains("private hidden reasoning"));
+    for text in [
+        "visible source explanation",
+        "visible source prefix",
+        "visible source suffix",
+    ] {
+        assert!(encoded.contains(text));
+    }
     assert!(encoded.contains("original answer"));
     let foreign = Actor {
         id: "another-actor".into(),

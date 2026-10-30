@@ -196,7 +196,8 @@ impl Store {
         })
     }
 
-    /// Restore a pinned publication without reading its original files or secrets.
+    /// Atomically admit transferred context with the target publication's goal,
+    /// per-submission budget and scheduling intent. No remote IO.
     pub fn import_published_turn(
         &self,
         actor: &Actor,

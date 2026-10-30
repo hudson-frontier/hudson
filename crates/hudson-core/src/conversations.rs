@@ -197,9 +197,26 @@ pub(crate) fn export(data: &Data, actor: &Actor, run_id: Uuid) -> Result<Transcr
         .iter_mut()
         .chain(transcript.archived_exchanges.iter_mut().flatten())
     {
-        for content in &mut message.content {
-            match content {
+        let original = std::mem::take(&mut message.content);
+        for mut content in original {
+            let mut suffix = Vec::new();
+            match &mut content {
                 Content::ToolCall { call } => {
+                    if let Some(text) = call
+                        .provider_metadata
+                        .get("chat_assistant_text")
+                        .and_then(Value::as_str)
+                    {
+                        message.content.push(Content::Text {
+                            text: text.to_owned(),
+                        });
+                    }
+                    visible_blocks(
+                        &call.provider_metadata,
+                        "anthropic_prefix",
+                        &mut message.content,
+                    )?;
+                    visible_blocks(&call.provider_metadata, "anthropic_suffix", &mut suffix)?;
                     call.provider_metadata = Value::Null;
                 }
                 Content::ToolResult { result } => {
@@ -217,10 +234,28 @@ pub(crate) fn export(data: &Data, actor: &Actor, run_id: Uuid) -> Result<Transcr
                 }
                 _ => {}
             }
+            message.content.push(content);
+            message.content.extend(suffix);
         }
     }
     transcript.validate(MAX_TRANSCRIPT_BYTES)?;
     Ok(transcript)
+}
+
+fn visible_blocks(metadata: &Value, key: &str, content: &mut Vec<Content>) -> Result<()> {
+    if let Some(blocks) = metadata.get(key).and_then(Value::as_array) {
+        for block in blocks {
+            if block["type"] == "text" {
+                let text = block["text"]
+                    .as_str()
+                    .ok_or_else(|| Error::Invalid("malformed visible provider text".into()))?;
+                content.push(Content::Text {
+                    text: text.to_owned(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn expand_output(

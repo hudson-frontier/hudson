@@ -20,6 +20,7 @@ const MAX_BYTES: usize = 65_536;
 pub enum MessageKind {
     Steer,
     FollowUp,
+    Compact,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -57,6 +58,9 @@ impl Store {
         value: Value,
         request_key: &str,
     ) -> Result<MessageReceipt> {
+        if kind == MessageKind::Compact && !value.is_null() {
+            return Err(Error::Invalid("compaction input must be null".into()));
+        }
         if request_key.is_empty()
             || request_key.len() > 128
             || request_key.chars().any(char::is_control)
@@ -95,6 +99,18 @@ impl Store {
             if run.status.terminal() || run.status == RunStatus::Cancelling {
                 return Err(Error::Conflict(
                     "cannot queue input on a finished or cancelling run".into(),
+                ));
+            }
+            if kind == MessageKind::Compact
+                && data
+                    .context_policies
+                    .get(&(actor.workspace_id.clone(), run.agent_ref.clone()))
+                    .and_then(Option::as_ref)
+                    .is_none()
+            {
+                return Err(Error::Unsupported(
+                    "explicit compaction requires a configured context policy and archive reader"
+                        .into(),
                 ));
             }
             let inbox = data.inboxes.entry(run_id).or_default();
@@ -156,7 +172,8 @@ impl Store {
 
 pub(crate) struct Prepared {
     revision: u64,
-    message_id: Option<Uuid>,
+    message_ids: [Option<Uuid>; 2],
+    pub compact: bool,
 }
 
 pub(crate) fn prepare(data: &Data, run_id: Uuid, input: Input) -> (Prepared, Input) {
@@ -178,7 +195,15 @@ pub(crate) fn prepare(data: &Data, run_id: Uuid, input: Input) -> (Prepared, Inp
                     .find(|message| follow && message.receipt.kind == MessageKind::FollowUp)
             })
     });
-    let message_id = selected.map(|message| message.receipt.id);
+    let compaction = pending.and_then(|pending| {
+        pending
+            .iter()
+            .find(|message| steer && message.receipt.kind == MessageKind::Compact)
+    });
+    let message_ids = [
+        selected.map(|message| message.receipt.id),
+        compaction.map(|message| message.receipt.id),
+    ];
     let input = if let Some(message) = selected {
         Input::Queued {
             input: Box::new(input),
@@ -190,7 +215,8 @@ pub(crate) fn prepare(data: &Data, run_id: Uuid, input: Input) -> (Prepared, Inp
     (
         Prepared {
             revision,
-            message_id,
+            message_ids,
+            compact: compaction.is_some(),
         },
         input,
     )
@@ -203,13 +229,13 @@ pub(crate) fn unchanged(data: &Data, run_id: Uuid, prepared: &Prepared) -> bool 
 }
 
 pub(crate) fn consume(data: &mut Data, run_id: Uuid, prepared: &Prepared) {
-    let Some(message_id) = prepared.message_id else {
+    if prepared.message_ids.iter().all(Option::is_none) {
         return;
-    };
+    }
     let inbox = data.inboxes.get_mut(&run_id).expect("prepared inbox");
     inbox
         .pending
-        .retain(|message| message.receipt.id != message_id);
+        .retain(|message| !prepared.message_ids.contains(&Some(message.receipt.id)));
     // All callers validate the revision first, and at most 128 submissions plus
     // their consumption/withdrawal can increment it for a run.
     inbox.revision += 1;
@@ -218,7 +244,7 @@ pub(crate) fn consume(data: &mut Data, run_id: Uuid, prepared: &Prepared) {
         None,
         EventType::InputConsumed,
         None,
-        json!({"message_ids":[message_id]}),
+        json!({"message_ids":prepared.message_ids.iter().flatten().collect::<Vec<_>>()}),
     );
 }
 

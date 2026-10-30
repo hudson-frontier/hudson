@@ -445,7 +445,10 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             &config,
             &run.state,
             queued_input,
-            context_policy.as_ref(),
+            crate::context::Control {
+                policy: context_policy.as_ref(),
+                compact: queued.compact,
+            },
             &actor.workspace_id,
             id,
         ) {
@@ -462,6 +465,9 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             if !crate::inbox::unchanged(d, id, &queued) { return Ok(false); }
             crate::context::commit(d, &prepared.artifacts)?;
             crate::context::commit(d, &dependency_artifacts)?;
+            if let Some(compaction) = &prepared.compaction {
+                d.event(id, None, EventType::ContextCompacted, Some(actor.id.clone()), json!(compaction));
+            }
             bounded(&transition.checkpoint, current.limits.max_context_bytes)?;
             bounded(&transition.action, current.limits.max_context_bytes)?;
             let agent = d.agents[&(actor.workspace_id.clone(), current.agent_ref.clone())].clone();

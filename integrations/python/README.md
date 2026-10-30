@@ -114,3 +114,9 @@ The ordinary check runner includes these offline tests. The opt-in local
 PostgreSQL/Temporal suite additionally runs the client against authenticated
 publication, conflicts, approval waits, API/worker restarts and reconnects.
 Neither test path needs paid providers or hosted infrastructure.
+## Context compaction
+
+`client.compact_context(run_id, request_key="compact-1")` queues source-preserving
+archival at a safe boundary for an agent with context management enabled. It
+does not resume or approve the run; inspect the `context_compacted` event for
+the bounded archival result.

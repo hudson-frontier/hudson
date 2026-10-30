@@ -188,6 +188,14 @@ class ClientTests(unittest.TestCase):
                 self.client.queue_message(RUN, 'invalid', kind=kind, request_key='message-2')
         self.assertEqual(len(self.requests), 3)
 
+    def test_compaction_is_an_explicit_null_control_and_is_not_a_direction(self):
+        self.client.compact_context(RUN, request_key='compact-1')
+        self.assertEqual(self.requests[0][0:2], ('POST', f'/runs/{RUN}/messages'))
+        self.assertEqual(self.requests[0][3], {'kind':'compact','input':None,'request_key':'compact-1'})
+        with self.assertRaises(ValueError):
+            self.client.queue_message(RUN, 'do not interpret this as a command', kind='compact', request_key='bad')
+        self.assertEqual(len(self.requests), 1)
+
     def test_does_not_forward_auth_on_redirect(self):
         self.respond = lambda *_: (307, b'', {'Location': self.url + '/redirect-target'})
         with self.assertRaises(HttpError) as error:

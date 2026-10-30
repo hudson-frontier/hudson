@@ -344,11 +344,17 @@ class HudsonClient:
         return self._request('POST', f'/runs/{_id(run_id)}/resume')
 
     def queue_message(self, run_id, input, *, kind, request_key):
-        """Queue steering or a follow-up; this does not approve, reply, or resume."""
-        if kind not in ('steer', 'follow_up'):
-            raise ValueError('message kind must be steer or follow_up')
+        """Queue a direction, follow-up or explicit context compaction."""
+        if kind not in ('steer', 'follow_up', 'compact'):
+            raise ValueError('message kind must be steer, follow_up or compact')
+        if kind == 'compact' and input is not None:
+            raise ValueError('compaction input must be null')
         return self._request('POST', f'/runs/{_id(run_id)}/messages', {
             'kind': kind, 'input': input, 'request_key': _key(request_key)})
+
+    def compact_context(self, run_id, *, request_key):
+        """Archive eligible history at a safe boundary using the pinned policy."""
+        return self.queue_message(run_id, None, kind='compact', request_key=request_key)
 
     def queued_messages(self, run_id):
         return self._request('GET', f'/runs/{_id(run_id)}/messages')

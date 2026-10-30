@@ -227,3 +227,8 @@ inputs against queue steering and follow-ups.
 Reserved headroom can archive evidence earlier and increase explicit retrieval
 tool calls. It introduces no hidden summaries, and those calls still consume the
 ordinary run/tool budgets. Zero reserve retains the previous hard-limit trigger.
+## Explicit context compaction
+
+The [compaction control](context-compaction.md) archives eligible complete
+history at a durable safe boundary. It preserves original evidence, the pinned
+context policy and all execution/approval limits.

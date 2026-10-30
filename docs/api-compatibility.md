@@ -1,9 +1,14 @@
 # Preview HTTP compatibility
 
-The additive account catalog and transient `/account-sessions` controls retain
-revision r4. They require the existing host authentication, accept no credentials
+The `hudson-preview-2026-10-30-r8` revision adds the account catalog and transient
+`/account-sessions` controls. They require the existing host authentication, accept no credentials
 in request bodies and change no run execution binding. Session keys and results
 live only until expiry/restart. See [native account lifecycle](runtime-accounts.md).
+
+The `hudson-preview-2026-10-30-r5` revision adds the explicit `compact` queue kind
+with null input and the `context_compacted` event. Exhaustive message/event
+consumers must handle them. Compaction remains a durable control and does not
+add model calls or change execution authority. See [context compaction](context-compaction.md).
 
 The `hudson-preview-2026-10-30-r4` revision adds `isolated_stdio_bridge` to harness
 discovery's transport enum. Clients with exhaustive transport matching must

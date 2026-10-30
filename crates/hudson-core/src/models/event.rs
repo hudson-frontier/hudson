@@ -11,6 +11,7 @@ pub enum EventType {
     InputQueued,
     InputConsumed,
     InputQueueCleared,
+    ContextCompacted,
     OperationRequested,
     ApprovalRequested,
     ApprovalDecided,

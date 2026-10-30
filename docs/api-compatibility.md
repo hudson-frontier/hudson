@@ -36,6 +36,12 @@ host authentication and exposes no endpoint or credential configuration. Existin
 request/response schemas are unchanged. The Python caller's `harnesses()` method
 requires a server implementing this addition.
 
+The additive conversation export, fork and import routes retain this revision.
+They use a separate `format_version: 1` portable transcript and preserve existing
+submission behavior. Imported context does not carry execution authority. The
+larger 5 MiB body allowance is restricted to `/runs/import`; existing routes keep
+their 64 KiB limit. The Python transfer methods require these new routes.
+
 Removing/renaming routes or properties, adding required request fields, changing
 types or defaults, tightening accepted values, changing terminal/wait semantics,
 introducing new status values, or changing identity/retry-key interpretation

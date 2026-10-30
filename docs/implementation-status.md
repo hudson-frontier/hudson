@@ -4,9 +4,15 @@ The execution-runtime extension now has optional bridge text streaming, an
 attempt-fenced provisional-output journal, SSE/WebSocket observation and Windows
 Job Object cleanup. Protocol fixtures and native Windows descendant-cleanup
 tests cover these paths; they do not establish vendor runtime parity. Native
-SDK adapters/sessions, multimodal input, compaction, currency admission and
+SDK adapters/session files, multimodal input, compaction, currency admission and
 filesystem/network isolation remain tracked in issue #91. See
 [execution adapters](execution-adapters.md) for current limits.
+
+Portable conversation export, fork and import use actor-scoped source artifacts
+and fresh target admission. Transferred history supplies no approvals, prior
+operation evidence or provider state. The implementation supports changing the
+target's pinned agent/model configuration between tasks; active native vendor
+session controls remain separate work. See [conversation transfer](conversations.md).
 
 The local preview Python client and explicit HTTP contract baseline are documented
 in [api-compatibility.md](api-compatibility.md). Protocol regressions cover transport

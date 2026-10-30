@@ -25,6 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use uuid::Uuid;
+mod conversations;
 mod event_stream;
 
 struct NoModel(Option<hudson_core::budgets::ModelBudgetBinding>);
@@ -75,6 +76,7 @@ struct App {
     schedule: Option<hudson_core::scheduling::ScheduleTarget>,
     stream_slots: Arc<tokio::sync::Semaphore>,
     stream_reads: Arc<tokio::sync::Semaphore>,
+    import_slots: Arc<tokio::sync::Semaphore>,
 }
 struct ApiError(Error);
 impl From<Error> for ApiError {
@@ -472,6 +474,7 @@ fn assemble(
     let app = App {
         stream_slots: Arc::new(tokio::sync::Semaphore::new(32)),
         stream_reads: Arc::new(tokio::sync::Semaphore::new(32)),
+        import_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         catalog,
         schedule,
         model_budget: model_budget.clone(),
@@ -507,6 +510,14 @@ fn assemble(
                         specification["paths"]["/runs"]["post"]["requestBody"]["content"]
                             ["application/json"]["schema"] =
                             json!({"$ref":"#/components/schemas/PublishedSubmission"});
+                        for (path, schema) in [
+                            ("/runs/import", "PublishedConversationImport"),
+                            ("/runs/{id}/fork", "PublishedConversationFork"),
+                        ] {
+                            specification["paths"][path]["post"]["requestBody"]["content"]
+                                ["application/json"]["schema"] =
+                                json!({"$ref":format!("#/components/schemas/{schema}")});
+                        }
                     } else if let Some(paths) = specification["paths"].as_object_mut() {
                         for path in [
                             "/capabilities",
@@ -535,6 +546,19 @@ fn assemble(
         .route("/runs/{id}/events", get(events))
         .route("/runs/{id}/events/stream", get(event_stream::sse))
         .route("/runs/{id}/events/ws", get(event_stream::websocket))
+        .route("/runs/{id}/conversation", get(conversations::export))
+        .route("/runs/{id}/fork", post(conversations::fork))
+        .route(
+            "/runs/import",
+            post(conversations::import_turn)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    conversations::MAX_IMPORT_BYTES,
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    app.import_slots.clone(),
+                    conversations::gate,
+                )),
+        )
         .route("/runs/{id}/schedule", get(inspect_schedule))
         .route("/runs/{id}/children", get(children))
         .route("/runs/{id}/resume", post(resume))

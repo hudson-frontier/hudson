@@ -197,6 +197,31 @@ impl Store {
     }
 
     /// Restore a pinned publication without reading its original files or secrets.
+    pub fn import_published_turn(
+        &self,
+        actor: &Actor,
+        reference: &VersionRef,
+        mut turn: crate::conversations::ImportedTurn,
+        target: crate::scheduling::ScheduleTarget,
+    ) -> Result<uuid::Uuid> {
+        let config = self
+            .published_configuration(actor, reference)?
+            .for_submission(actor, &turn.request_key)?;
+        self.transact(|data| {
+            let staging = Store::staging(data.clone());
+            let tree = config
+                .build_admission_tree(staging.clone(), actor)
+                .map_err(invalid)?;
+            turn.goal = tree.goal.clone();
+            let id = tree
+                .runtime
+                .import_turn(actor, tree.reference.clone(), turn, Some(target))?;
+            *data = staging.read(|snapshot| Ok(snapshot.clone()))?;
+            Ok(id)
+        })
+    }
+
+    /// Restore a pinned publication without reading its original files or secrets.
     pub fn published_configuration(
         &self,
         actor: &Actor,

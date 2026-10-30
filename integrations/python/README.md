@@ -49,6 +49,14 @@ byte ceiling, or server EOF. These bounds can be lowered with `max_events`,
 Reconnect explicitly with the last saved cursor. Partial `model_output_delta`
 events are provisional; inspect `run(run_id)` for the verified final result.
 
+`export_conversation(run_id)` returns a portable transcript from a completed
+actor-owned run. Use `fork(run_id, input, request_key=...)` for a local source or
+`import_conversation(transcript, input, request_key=...)` for explicit transfer.
+Published hosts also require the target `agent_ref`. The new task gets fresh
+limits, usage and policy checks; earlier tool calls are never replayed. Import
+has a separate 5 MiB request ceiling; other methods retain 64 KiB. See
+[format and ownership rules](../../docs/conversations.md).
+
 `queue_message(run_id, value, kind='steer', request_key='direction-1')` adds user
 direction at the next complete boundary. Use `kind='follow_up'` to wait for a
 verified answer first. `queued_messages` inspects pending input and

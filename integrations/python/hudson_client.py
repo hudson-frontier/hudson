@@ -103,7 +103,7 @@ class HudsonClient:
     def __repr__(self):
         return f'HudsonClient({self.url!r})'
 
-    def _request(self, method, path, body=None):
+    def _request(self, method, path, body=None, *, max_request_bytes=64 * 1024):
         data = None
         if body is not None:
             try:
@@ -111,8 +111,8 @@ class HudsonClient:
                                   separators=(',', ':')).encode('utf-8')
             except (TypeError, ValueError, UnicodeError):
                 raise ValueError('request body must be JSON') from None
-            if len(data) > 64 * 1024:
-                raise ValueError('request body exceeds 64 KiB')
+            if len(data) > max_request_bytes:
+                raise ValueError('request body exceeds configured byte bound')
         headers = {'Accept': 'application/json'}
         if data is not None:
             headers['Content-Type'] = 'application/json'
@@ -197,6 +197,21 @@ class HudsonClient:
 
     def operation(self, operation_id):
         return self._request('GET', f'/operations/{_id(operation_id)}')
+
+    def export_conversation(self, run_id):
+        return self._request('GET', f'/runs/{_id(run_id)}/conversation')
+
+    def import_conversation(self, transcript, input, *, request_key, agent_ref=None):
+        body = {'transcript': transcript, 'input': input, 'request_key': _key(request_key)}
+        if agent_ref is not None:
+            body['agent_ref'] = agent_ref
+        return self._request('POST', '/runs/import', body, max_request_bytes=5 * 1024 * 1024)
+
+    def fork(self, run_id, input, *, request_key, agent_ref=None):
+        body = {'input': input, 'request_key': _key(request_key)}
+        if agent_ref is not None:
+            body['agent_ref'] = agent_ref
+        return self._request('POST', f'/runs/{_id(run_id)}/fork', body)
 
     def stream_events(self, run_id, *, after=0, max_events=10000, max_seconds=300):
         """Observe one bounded SSE connection. Save each sequence before reconnecting.

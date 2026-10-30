@@ -6,6 +6,7 @@ use crate::{models::TokenUsage, Error, Result};
 use hudson_harness::{ModelRequest, ModelResponse};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::PathBuf, time::Duration};
+#[cfg(unix)]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -442,6 +443,7 @@ impl ModelExecutor for BridgeModel {
     }
 }
 
+#[cfg(unix)]
 async fn bounded_read(
     reader: impl AsyncRead + Unpin,
     limit: usize,

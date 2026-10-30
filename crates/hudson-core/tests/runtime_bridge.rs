@@ -6,11 +6,13 @@ use hudson_core::{
 };
 use hudson_harness::{ModelRequest, ModelResponse};
 use serde_json::{json, Value};
+#[cfg(unix)]
+use std::time::Instant;
 use std::{
     io::{Read, Write},
     net::TcpListener,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 fn request() -> ModelRequest {

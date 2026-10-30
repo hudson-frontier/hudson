@@ -1972,7 +1972,8 @@
               "input_consumed",
               "input_queue_cleared",
               "model_output_delta",
-              "spend_reconciled"
+              "spend_reconciled",
+              "context_compacted"
             ]
           },
           "actor_id": {
@@ -2563,7 +2564,8 @@
             "type": "string",
             "enum": [
               "steer",
-              "follow_up"
+              "follow_up",
+              "compact"
             ]
           }
         },
@@ -2594,7 +2596,8 @@
             "type": "string",
             "enum": [
               "steer",
-              "follow_up"
+              "follow_up",
+              "compact"
             ]
           },
           "input": {},
@@ -2609,7 +2612,26 @@
           "input",
           "request_key"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Queue a direction, follow-up, or explicit compaction. Compaction requires null input and a configured context policy.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "compact"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "input": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
       },
       "ClearedMessages": {
         "type": "object",

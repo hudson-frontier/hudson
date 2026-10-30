@@ -2,6 +2,12 @@ use super::*;
 use hudson_harness::{AgentLoop, Config, Role, ToolCall, ToolResult};
 
 fn workload() -> (Engine<AgentLoop>, Config, Checkpoint, Input, ContextPolicy) {
+    workload_with_exchanges(120)
+}
+
+fn workload_with_exchanges(
+    count: usize,
+) -> (Engine<AgentLoop>, Config, Checkpoint, Input, ContextPolicy) {
     let engine = Engine::new(AgentLoop);
     let config = Config {
         instructions: "Keep exact evidence".into(),
@@ -20,7 +26,7 @@ fn workload() -> (Engine<AgentLoop>, Config, Checkpoint, Input, ContextPolicy) {
         )
         .unwrap();
     let mut history = agent_loop::history(&started.checkpoint).unwrap();
-    for index in 0..120 {
+    for index in 0..count {
         let id = format!("call-{index}");
         history.messages.push(Message {
             role: Role::Assistant,
@@ -59,6 +65,121 @@ fn workload() -> (Engine<AgentLoop>, Config, Checkpoint, Input, ContextPolicy) {
 }
 
 #[test]
+fn explicit_compaction_archives_fitting_history_without_changing_the_action() {
+    let (engine, mut config, checkpoint, input, policy) = workload();
+    config.max_context_bytes = 256 * 1024;
+    let automatic = advance(
+        &engine,
+        &config,
+        &checkpoint,
+        input.clone(),
+        Control {
+            policy: Some(&policy),
+            compact: false,
+        },
+        "workspace",
+        Uuid::nil(),
+    )
+    .unwrap();
+    assert!(automatic.artifacts.is_empty());
+    let prepared = advance(
+        &engine,
+        &config,
+        &checkpoint,
+        input,
+        Control {
+            policy: Some(&policy),
+            compact: true,
+        },
+        "workspace",
+        Uuid::nil(),
+    )
+    .unwrap();
+    assert_eq!(automatic.transition.action, prepared.transition.action);
+    let report = prepared.compaction.as_ref().unwrap();
+    assert_eq!(report.archived_exchanges, 118);
+    assert!(report.history_bytes_after < report.history_bytes_before / 10);
+    assert_eq!(prepared.artifacts.len(), 118);
+    let history = agent_loop::history(&prepared.transition.checkpoint).unwrap();
+    assert_eq!(
+        history.messages[0].content,
+        vec![Content::Json {
+            value: json!("original task")
+        }]
+    );
+    let last = prepared.artifacts.last().unwrap();
+    assert_eq!(report.artifact_id.as_ref(), Some(&last.id));
+    for pair in prepared.artifacts.windows(2) {
+        assert_eq!(pair[1].content["previous_artifact"], pair[0].id);
+    }
+}
+
+#[test]
+fn explicit_compaction_bounds_work_and_preserves_images_directions_and_pending_calls() {
+    let (_, _, checkpoint, _, mut policy) = workload_with_exchanges(260);
+    policy.recent_exchanges = 1;
+    let mut history = agent_loop::history(&checkpoint).unwrap();
+    let direction = Message {
+        role: Role::User,
+        content: vec![
+            Content::Json {
+                value: json!("latest direction"),
+            },
+            Content::Image {
+                image: hudson_harness::images::Image {
+                    media_type: "image/png".into(),
+                    data: "YQ==".into(),
+                },
+            },
+        ],
+    };
+    let pending = Message {
+        role: Role::Assistant,
+        content: vec![Content::ToolCall {
+            call: ToolCall {
+                call_id: "pending".into(),
+                name: "read".into(),
+                arguments: json!({}),
+                provider_metadata: json!({}),
+            },
+        }],
+    };
+    history
+        .messages
+        .extend([direction.clone(), pending.clone()]);
+    let mut artifacts = Vec::new();
+    let report = compact_history(
+        &mut history,
+        &mut artifacts,
+        "workspace",
+        Uuid::nil(),
+        &policy,
+    )
+    .unwrap();
+    assert_eq!(report.archived_exchanges, 128);
+    assert_eq!(artifacts.len(), 128);
+    assert!(history.messages.contains(&direction));
+    assert!(history.messages.contains(&pending));
+    for artifact in artifacts {
+        let messages: Vec<Message> =
+            serde_json::from_value(artifact.content["messages"].clone()).unwrap();
+        assert!(matches!(
+            messages.as_slice(),
+            [
+                Message {
+                    role: Role::Assistant,
+                    ..
+                },
+                Message {
+                    role: Role::Tool,
+                    ..
+                }
+            ]
+        ));
+    }
+}
+
+#[test]
 fn compaction_preserves_recent_exchanges_originals_and_advisory_headroom() {
     let (engine, config, checkpoint, input, mut policy) = workload();
     policy.reserve_bytes = 4096;
@@ -67,7 +188,10 @@ fn compaction_preserves_recent_exchanges_originals_and_advisory_headroom() {
         &config,
         &checkpoint,
         input,
-        Some(&policy),
+        Control {
+            policy: Some(&policy),
+            compact: false,
+        },
         "workspace",
         Uuid::nil(),
     )
@@ -139,7 +263,10 @@ fn reserve_does_not_reject_a_valid_minimal_context() {
         Input::Start {
             value: json!("small original task"),
         },
-        Some(&policy),
+        Control {
+            policy: Some(&policy),
+            compact: false,
+        },
         "workspace",
         Uuid::nil(),
     )
@@ -166,7 +293,10 @@ fn compaction_workload() {
             &config,
             &checkpoint,
             input.clone(),
-            Some(&policy),
+            Control {
+                policy: Some(&policy),
+                compact: false,
+            },
             "workspace",
             Uuid::nil(),
         )

@@ -80,6 +80,84 @@ impl ContextArtifact {
 pub(crate) struct Prepared {
     pub transition: Transition,
     pub artifacts: Vec<ContextArtifact>,
+    pub compaction: Option<Compaction>,
+}
+
+pub(crate) struct Control<'a> {
+    pub policy: Option<&'a ContextPolicy>,
+    pub compact: bool,
+}
+
+#[derive(Serialize)]
+pub(crate) struct Compaction {
+    history_bytes_before: usize,
+    history_bytes_after: usize,
+    archived_exchanges: usize,
+    artifact_id: Option<String>,
+}
+
+fn archive_exchange(
+    history: &mut hudson_harness::context::History,
+    archived: Vec<Message>,
+    artifacts: &mut Vec<ContextArtifact>,
+    workspace: &str,
+    run: Uuid,
+    policy: &ContextPolicy,
+) -> Result<()> {
+    let excerpt = extract(&archived, policy.excerpt_bytes)?;
+    let previous = history
+        .archive
+        .as_ref()
+        .map(|index| index.artifact_id.clone());
+    let artifact = ContextArtifact::new(
+        workspace,
+        run,
+        json!({"kind":"conversation_exchange","previous_artifact":previous,"messages":archived,"excerpt":excerpt}),
+    )?;
+    history.archive = Some(ArchiveIndex {
+        artifact_id: artifact.id.clone(),
+        excerpt,
+    });
+    artifacts.push(artifact);
+    Ok(())
+}
+
+/// Move each message at most once. A control archives at most 128 complete
+/// exchanges; source messages, images, pending cycles and recent directions
+/// retain the same protection as automatic context management.
+fn compact_history(
+    history: &mut hudson_harness::context::History,
+    artifacts: &mut Vec<ContextArtifact>,
+    workspace: &str,
+    run: Uuid,
+    policy: &ContextPolicy,
+) -> Result<Compaction> {
+    let before = serde_json::to_vec(history)?.len();
+    let ranges = history.complete_exchanges();
+    let count = ranges
+        .len()
+        .saturating_sub(policy.recent_exchanges)
+        .min(128);
+    let mut messages = std::mem::take(&mut history.messages).into_iter();
+    let mut cursor = 0;
+    for range in ranges.into_iter().take(count) {
+        history
+            .messages
+            .extend(messages.by_ref().take(range.start - cursor));
+        let archived = messages.by_ref().take(range.len()).collect();
+        cursor = range.end;
+        archive_exchange(history, archived, artifacts, workspace, run, policy)?;
+    }
+    history.messages.extend(messages);
+    Ok(Compaction {
+        history_bytes_before: before,
+        history_bytes_after: serde_json::to_vec(history)?.len(),
+        archived_exchanges: count,
+        artifact_id: history
+            .archive
+            .as_ref()
+            .map(|index| index.artifact_id.clone()),
+    })
 }
 
 fn prefix(text: &str, max: usize) -> &str {
@@ -115,14 +193,20 @@ pub(crate) fn advance<B: Backend>(
     config: &hudson_harness::Config,
     checkpoint: &Checkpoint,
     mut input: Input,
-    policy: Option<&ContextPolicy>,
+    control: Control<'_>,
     workspace: &str,
     run: Uuid,
 ) -> Result<Prepared> {
-    let Some(policy) = policy else {
+    let Some(policy) = control.policy else {
+        if control.compact {
+            return Err(Error::Unsupported(
+                "explicit compaction requires a context policy".into(),
+            ));
+        }
         return Ok(Prepared {
             transition: engine.advance(config, checkpoint, input)?,
             artifacts: vec![],
+            compaction: None,
         });
     };
     policy.validate()?;
@@ -155,6 +239,17 @@ pub(crate) fn advance<B: Backend>(
             }
         }
     }
+    let compaction = if control.compact {
+        Some(compact_history(
+            &mut history,
+            &mut artifacts,
+            workspace,
+            run,
+            policy,
+        )?)
+    } else {
+        None
+    };
     let mut complete = history.complete_exchanges().len();
     loop {
         let updated = agent_loop::with_history(checkpoint, history.clone())?;
@@ -179,6 +274,7 @@ pub(crate) fn advance<B: Backend>(
                 return Ok(Prepared {
                     transition,
                     artifacts,
+                    compaction,
                 });
             }
         }
@@ -190,21 +286,14 @@ pub(crate) fn advance<B: Backend>(
             .ok_or(HarnessError::ContextLimit)?;
         let archived: Vec<Message> = history.messages.drain(range).collect();
         complete -= 1;
-        let excerpt = extract(&archived, policy.excerpt_bytes)?;
-        let previous = history
-            .archive
-            .as_ref()
-            .map(|index| index.artifact_id.clone());
-        let artifact = ContextArtifact::new(
+        archive_exchange(
+            &mut history,
+            archived,
+            &mut artifacts,
             workspace,
             run,
-            json!({"kind":"conversation_exchange","previous_artifact":previous,"messages":archived,"excerpt":excerpt}),
+            policy,
         )?;
-        history.archive = Some(ArchiveIndex {
-            artifact_id: artifact.id.clone(),
-            excerpt,
-        });
-        artifacts.push(artifact);
     }
 }
 

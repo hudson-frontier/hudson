@@ -1,5 +1,10 @@
 # Preview HTTP compatibility
 
+The `hudson-preview-2026-10-30-r5` revision adds the explicit `compact` queue kind
+with null input and the `context_compacted` event. Exhaustive message/event
+consumers must handle them. Compaction remains a durable control and does not
+add model calls or change execution authority. See [context compaction](context-compaction.md).
+
 The `hudson-preview-2026-10-30-r4` revision adds `isolated_stdio_bridge` to harness
 discovery's transport enum. Clients with exhaustive transport matching must
 handle that value. Isolation settings and host paths remain private operator

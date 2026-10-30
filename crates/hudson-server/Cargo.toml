@@ -17,10 +17,12 @@ axum.workspace = true
 tokio.workspace = true
 serde.workspace = true
 uuid.workspace = true
+futures = "0.3"
 
 [dev-dependencies]
 jsonschema.workspace = true
 tower = { version = "0.5", features = ["util"] }
+tokio-tungstenite = "0.29"
 
 [lints]
 workspace = true

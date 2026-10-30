@@ -985,6 +985,130 @@
           }
         }
       }
+    },
+    "/runs/{id}/events/stream": {
+      "get": {
+        "operationId": "streamEvents",
+        "summary": "Observe committed events using Server-Sent Events",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "description": "Exclusive event cursor. A nonzero after query must match this header.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ordered events after the exclusive cursor; disconnects do not cancel execution.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "SSE event: event, id: sequence, data: serialized Event JSON; heartbeat comments are ignored."
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Observation only. Maximum 32 combined SSE/WebSocket connections per host and 300 seconds per connection. Bearer expiry and revocation close observation. Reconnect explicitly from the last processed sequence. No credentials in query strings. model_output_delta payloads are provisional and bound to an operation attempt; only verified final output completes a run."
+      }
+    },
+    "/runs/{id}/events/ws": {
+      "get": {
+        "operationId": "websocketEvents",
+        "summary": "Observe committed events over an upgraded WebSocket",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "description": "Exclusive event cursor. A nonzero after query must match this header.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Ordered events after the exclusive cursor; disconnects do not cancel execution."
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Observation only. Maximum 32 combined SSE/WebSocket connections per host and 300 seconds per connection. Bearer expiry and revocation close observation. Reconnect explicitly from the last processed sequence. No credentials in query strings. model_output_delta payloads are provisional and bound to an operation attempt; only verified final output completes a run. Each text message contains an Event object. Clients may ping, pong or close; mutation messages close the socket. Incoming messages are capped at 4096 bytes."
+      }
     }
   },
   "components": {
@@ -1563,7 +1687,8 @@
               "assessment_recorded",
               "input_queued",
               "input_consumed",
-              "input_queue_cleared"
+              "input_queue_cleared",
+              "model_output_delta"
             ]
           },
           "actor_id": {

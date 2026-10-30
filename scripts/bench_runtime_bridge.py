@@ -26,14 +26,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         length = int(self.headers['Content-Length'])
         assert 0 < length < 65536
         request = json.loads(self.rfile.read(length))
-        if self.path == '/bridge':
+        if self.path in ('/bridge', '/stream'):
             assert request['max_output_tokens'] == 32
             response = {'protocol_version': 1, 'runtime_id': 'benchmark', 'runtime_version': 1,
                         'response': {'type': 'final', 'output': 42}}
         else:
             assert request['max_completion_tokens'] == 32
             response = {'choices': [{'finish_reason': 'stop', 'message': {'content': '42'}}]}
-        data = json.dumps(response).encode()
+        if self.path == '/stream':
+            assert request['stream'] is True
+            frames = [{'type': 'start', 'protocol_version': 1, 'runtime_id': 'benchmark', 'runtime_version': 1},
+                      {'type': 'text_delta', 'text': '42'}, {'type': 'response', 'result': response}]
+            data = b''.join((json.dumps(frame) + '\n').encode() for frame in frames)
+        else:
+            data = json.dumps(response).encode()
         self.send_response(200)
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
@@ -46,7 +52,7 @@ if __name__ == '__main__':
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for mode in ('direct', 'bridge'):
+        for mode in ('direct', 'bridge', 'stream'):
             result = subprocess.run([str(root/'target/debug/examples/bridge_benchmark'), mode,
                                      f'http://127.0.0.1:{server.server_port}/{mode}', '100'],
                                     capture_output=True, text=True, check=True, timeout=30)

@@ -23,6 +23,17 @@ def respond(body):
     }
 
 
+def encode(body):
+    result = respond(body)
+    if body.get('stream', False):
+        frames = [dict(type='start', protocol_version=1, runtime_id=body['runtime_id'],
+                       runtime_version=body['runtime_version']),
+                  dict(type='text_delta', text='Checking execution…'),
+                  dict(type='response', result=result)]
+        return b''.join((json.dumps(frame, ensure_ascii=False) + '\n').encode() for frame in frames)
+    return json.dumps(result).encode()
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     timeout = 10
 
@@ -37,13 +48,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = self.rfile.read(length)
             if len(data) != length:
                 raise ValueError('incomplete input')
-            result = respond(json.loads(data))
+            request = json.loads(data)
+            data = encode(request)
             status = 200
         except (ValueError, KeyError, TypeError):
-            status, result = 400, {'error': 'invalid bridge request'}
-        data = json.dumps(result).encode()
+            status, data, request = 400, b'{"error":"invalid bridge request"}', {}
         self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Type', 'application/x-ndjson' if request.get('stream') else 'application/json')
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -57,7 +68,8 @@ if __name__ == '__main__':
         data = sys.stdin.buffer.read(LIMIT + 1)
         if len(data) > LIMIT:
             raise SystemExit('bridge request exceeds byte limit')
-        print(json.dumps(respond(json.loads(data))))
+        sys.stdout.buffer.write(encode(json.loads(data)))
+        sys.stdout.buffer.flush()
     else:
         with http.server.HTTPServer(('127.0.0.1', args.port), Handler) as server:
             print(f'http://127.0.0.1:{server.server_port}/model', flush=True)

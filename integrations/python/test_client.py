@@ -20,6 +20,37 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.client.harnesses(), [{'id': 'fixture', 'version': 1}])
         self.assertEqual([(method, path) for method, path, _, _ in self.requests], [('GET', '/harnesses')])
 
+    def test_stream_events_preserves_unicode_cursor_and_provisional_output(self):
+        events = [{'run_id': RUN, 'sequence': i, 'event_type': 'model_output_delta',
+                   'payload': {'text': 'a\u2028😀', 'provisional': True}} for i in (3, 4)]
+        frames = ': heartbeat\r\n\r\n' + ''.join(
+            f'id: {e["sequence"]}\r\nevent: event\r\ndata: ' +
+            json.dumps(e, ensure_ascii=False) + '\r\n\r\n' for e in events)
+        self.respond = lambda *_: (200, frames.encode(), {'Content-Type': 'text/event-stream'})
+        self.assertEqual(list(self.client.stream_events(RUN, after=2)), events)
+        self.assertEqual(self.requests[0][1], f'/runs/{RUN}/events/stream')
+        self.assertEqual(self.requests[0][2]['Last-Event-Id'], '2')
+        self.assertEqual(self.requests[0][2]['Authorization'], 'Bearer ' + TOKEN)
+        self.assertEqual(list(self.client.stream_events(RUN, after=2, max_events=1)), events[:1])
+
+    def test_stream_events_rejects_wrong_identity_sequence_truncation_and_bounds(self):
+        for event in [{'run_id': OTHER, 'sequence': 1}, {'run_id': RUN, 'sequence': 0},
+                      {'run_id': RUN, 'sequence': True}]:
+            frame = ('id: 1\nevent: event\ndata: ' + json.dumps(event) + '\n\n').encode()
+            self.respond = lambda *_, frame=frame: (200, frame, {'Content-Type': 'text/event-stream'})
+            with self.assertRaises(HudsonError):
+                list(self.client.stream_events(RUN))
+        for frame in [b'data: {}', b'id: 1\nevent: event\ndata: {}\n', b'data: \xff\n\n']:
+            self.respond = lambda *_, frame=frame: (200, frame, {'Content-Type': 'text/event-stream'})
+            with self.assertRaises(HudsonError):
+                list(self.client.stream_events(RUN))
+        self.respond = lambda *_: (200, b':' + b'x' * 129, {'Content-Type': 'text/event-stream'})
+        with self.assertRaises(HudsonError):
+            list(HudsonClient(self.url, max_response_bytes=128).stream_events(RUN))
+        for kwargs in [{'after': -1}, {'max_events': 0}, {'max_seconds': 301}]:
+            with self.assertRaises(ValueError):
+                list(self.client.stream_events(RUN, **kwargs))
+
     @classmethod
     def setUpClass(cls):
         class Handler(http.server.BaseHTTPRequestHandler):

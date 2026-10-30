@@ -1,13 +1,18 @@
 //! Operator-owned SDK bridges. Only proposals cross this boundary; Hudson owns
 //! tool execution, history, approval and verification. Bridges are trusted code,
 //! not uploaded or sandboxed programs.
-use super::{models::ModelExecutor, tools::ExecutionError};
+use super::{
+    models::{ModelExecutor, ModelObserver},
+    tools::ExecutionError,
+};
 use crate::{models::TokenUsage, Error, Result};
 use hudson_harness::{ModelRequest, ModelResponse};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::PathBuf, time::Duration};
-#[cfg(unix)]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+mod process;
+mod stream;
+pub use stream::Frame as BridgeStreamFrame;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -31,6 +36,8 @@ pub struct BridgeConfig {
     pub max_request_bytes: usize,
     #[serde(default = "bytes")]
     pub max_response_bytes: usize,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stream: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -163,9 +170,9 @@ impl BridgeConfig {
                 cwd,
                 env,
             } => {
-                if !cfg!(unix) {
+                if !cfg!(any(unix, windows)) {
                     return Err(Error::Unsupported(
-                        "stdio runtime bridges require Unix process-group containment".into(),
+                        "stdio runtime bridges require process containment".into(),
                     ));
                 }
                 if !executable.is_absolute()
@@ -184,7 +191,7 @@ impl BridgeConfig {
         Ok(())
     }
     pub fn descriptor(&self) -> ExecutionDescriptor {
-        ExecutionDescriptor::new(
+        let mut descriptor = ExecutionDescriptor::new(
             self.id.clone(),
             self.version,
             match self.transport {
@@ -192,7 +199,9 @@ impl BridgeConfig {
                 BridgeTransport::Stdio { .. } => "stdio_bridge",
             },
             matches!(self.transport, BridgeTransport::Stdio { .. }),
-        )
+        );
+        descriptor.capabilities.streaming = self.stream;
+        descriptor
     }
 }
 
@@ -203,6 +212,8 @@ pub struct BridgeRequest<'a> {
     pub runtime_version: u32,
     pub max_output_tokens: u32,
     pub request: &'a ModelRequest,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub stream: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -369,8 +380,24 @@ impl ModelExecutor for BridgeModel {
         request: &ModelRequest,
         cancelled: &dyn Fn() -> bool,
     ) -> std::result::Result<ModelResponse, ExecutionError> {
+        struct Control<'a>(&'a dyn Fn() -> bool);
+        impl ModelObserver for Control<'_> {
+            fn cancelled(&self) -> bool {
+                (self.0)()
+            }
+            fn text_delta(&mut self, _: &str) -> std::result::Result<(), ExecutionError> {
+                Ok(())
+            }
+        }
+        self.call_observed(request, &mut Control(cancelled))
+    }
+    fn call_observed(
+        &mut self,
+        request: &ModelRequest,
+        observer: &mut dyn ModelObserver,
+    ) -> std::result::Result<ModelResponse, ExecutionError> {
         self.usage = None;
-        if cancelled() {
+        if observer.cancelled() {
             return Err(failed("runtime bridge cancelled before dispatch"));
         }
         let mut body = BoundedBytes {
@@ -385,13 +412,20 @@ impl ModelExecutor for BridgeModel {
                 runtime_version: self.config.version,
                 max_output_tokens: self.max_output_tokens,
                 request,
+                stream: self.config.stream,
             },
         )
         .map_err(|_| failed("runtime bridge request exceeds limit or cannot be encoded"))?;
         let transport = self.transport.clone();
         let limit = self.config.max_response_bytes;
         let deadline = Duration::from_secs(self.config.timeout_seconds);
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let (sender, receiver) =
+            std::sync::mpsc::sync_channel(if self.config.stream { 16 } else { 1 });
+        let identity = stream::Identity {
+            id: self.config.id.clone(),
+            version: self.config.version,
+        };
+        let streaming = self.config.stream;
         struct IoTask(tokio::task::JoinHandle<()>);
         impl Drop for IoTask {
             fn drop(&mut self) {
@@ -400,26 +434,47 @@ impl ModelExecutor for BridgeModel {
         }
         let io = self.io.as_ref().expect("live bridge runtime");
         let mut task = IoTask(io.spawn(async move {
-            let result = tokio::time::timeout(deadline, exchange(&transport, body.bytes, limit))
-                .await
-                .unwrap_or_else(|_| {
-                    Err(unknown(
-                        "runtime bridge deadline exceeded; no automatic retry",
-                    ))
-                });
-            let _ = sender.try_send(result);
+            let result = tokio::time::timeout(deadline, async {
+                if streaming {
+                    stream::exchange(&transport, body.bytes, limit, &identity, &sender).await
+                } else {
+                    exchange(&transport, body.bytes, limit).await
+                }
+            })
+            .await
+            .unwrap_or_else(|_| {
+                Err(unknown(
+                    "runtime bridge deadline exceeded; no automatic retry",
+                ))
+            });
+            let _ = stream::send(&sender, stream::Notice::Complete(result)).await;
         }));
+        let mut last_control = std::time::Instant::now();
         let result = loop {
+            if last_control.elapsed() >= Duration::from_millis(250) {
+                if observer.cancelled() {
+                    task.0.abort();
+                    break Err(unknown("runtime bridge interrupted; no automatic retry"));
+                }
+                if let Err(error) = observer.heartbeat() {
+                    task.0.abort();
+                    break Err(error);
+                }
+                last_control = std::time::Instant::now();
+            }
             match receiver.recv_timeout(Duration::from_millis(250)) {
-                Ok(result) => break result,
+                Ok(stream::Notice::Complete(result)) => break result,
+                Ok(stream::Notice::Text(text)) => {
+                    if let Err(error) = observer.text_delta(&text) {
+                        task.0.abort();
+                        break Err(error);
+                    }
+                }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     break Err(unknown("runtime bridge IO worker unavailable"))
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if cancelled() {
-                        task.0.abort();
-                        break Err(unknown("runtime bridge interrupted; no automatic retry"));
-                    }
+                    continue;
                 }
             }
         };
@@ -456,7 +511,6 @@ impl ModelExecutor for BridgeModel {
     }
 }
 
-#[cfg(unix)]
 async fn bounded_read(
     reader: impl AsyncRead + Unpin,
     limit: usize,
@@ -527,7 +581,6 @@ async fn exchange(
     }
 }
 
-#[cfg(unix)]
 async fn process(
     executable: &std::path::Path,
     args: &[String],
@@ -536,32 +589,10 @@ async fn process(
     body: Vec<u8>,
     limit: usize,
 ) -> std::result::Result<Vec<u8>, ExecutionError> {
-    use std::process::Stdio;
-    let mut child = tokio::process::Command::new(executable)
-        .args(args)
-        .current_dir(cwd)
-        .env_clear()
-        .envs(env.iter().map(|(k, v)| (k, v)))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0)
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|_| failed("cannot start runtime bridge process"))?;
-    struct Group(rustix::process::Pid);
-    impl Drop for Group {
-        fn drop(&mut self) {
-            let _ = rustix::process::kill_process_group(self.0, rustix::process::Signal::KILL);
-        }
-    }
-    let _group = Group(
-        rustix::process::Pid::from_raw(child.id().expect("spawned child") as i32)
-            .expect("positive process ID"),
-    );
-    let mut stdin = child.stdin.take().expect("piped stdin");
-    let stdout = child.stdout.take().expect("piped stdout");
-    let stderr = child.stderr.take().expect("piped stderr");
+    let mut child = process::ContainedChild::spawn(executable, args, cwd, env)?;
+    let mut stdin = child.stdin();
+    let stdout = child.stdout();
+    let stderr = child.stderr();
     let write = async move {
         stdin
             .write_all(&body)
@@ -578,27 +609,11 @@ async fn process(
         bounded_read(stdout, limit),
         bounded_read(stderr, STDERR_BYTES)
     )?;
-    let status = child
-        .wait()
-        .await
-        .map_err(|_| unknown("runtime bridge exit unavailable"))?;
+    let status = child.wait().await?;
     if !status.success() {
         return Err(unknown(
             "runtime bridge exited unsuccessfully; no automatic retry",
         ));
     }
     Ok(output)
-}
-#[cfg(not(unix))]
-async fn process(
-    _: &std::path::Path,
-    _: &[String],
-    _: &std::path::Path,
-    _: &[(String, String)],
-    _: Vec<u8>,
-    _: usize,
-) -> std::result::Result<Vec<u8>, ExecutionError> {
-    Err(failed(
-        "stdio runtime bridges require Unix process-group containment",
-    ))
 }

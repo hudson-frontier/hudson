@@ -198,6 +198,83 @@ class HudsonClient:
     def operation(self, operation_id):
         return self._request('GET', f'/operations/{_id(operation_id)}')
 
+    def stream_events(self, run_id, *, after=0, max_events=10000, max_seconds=300):
+        """Observe one bounded SSE connection. Save each sequence before reconnecting.
+
+        Closing this generator closes observation only. There are no implicit
+        reconnects, effects, or retries. Partial model output is provisional.
+        """
+        run_id = _id(run_id)
+        _integer(after, 0, 2**64 - 1, 'event cursor')
+        _integer(max_events, 1, 10000, 'stream event budget')
+        _integer(max_seconds, 1, 300, 'stream duration')
+        headers = {'Accept': 'text/event-stream', 'Last-Event-ID': str(after)}
+        if self._token is not None:
+            headers['Authorization'] = 'Bearer ' + self._token
+        request = urllib.request.Request(
+            self.url + f'/runs/{run_id}/events/stream', headers=headers)
+        started = time.monotonic()
+        total = count = 0
+        data, sequence, event_type = [], None, None
+        try:
+            with self._opener.open(request, timeout=self.timeout) as response:
+                if not 200 <= response.status < 300:
+                    raise HttpError(response.status)
+                if response.headers.get_content_type() != 'text/event-stream':
+                    raise HudsonError('unexpected event stream content type')
+                while True:
+                    if time.monotonic() - started >= max_seconds:
+                        raise HudsonError(f'event stream duration exhausted; last cursor {after}')
+                    line = response.readline(self.max_response_bytes - total + 1)
+                    total += len(line)
+                    if total > self.max_response_bytes:
+                        raise HudsonError('event stream exceeds configured byte bound')
+                    if not line:
+                        if data or sequence is not None or event_type is not None:
+                            raise HudsonError('event stream ended inside a frame')
+                        return
+                    if not line.endswith(b'\n'):
+                        raise HudsonError('event stream ended inside a line')
+                    try:
+                        line = line[:-1].removesuffix(b'\r').decode('utf-8')
+                    except UnicodeError:
+                        raise HudsonError('event stream is not UTF-8') from None
+                    if not line:
+                        if not data:
+                            sequence, event_type = None, None
+                            continue
+                        try:
+                            event = json.loads('\n'.join(data), parse_constant=_reject_constant)
+                        except (ValueError, UnicodeError, RecursionError):
+                            raise HudsonError('invalid event stream JSON') from None
+                        if (event_type != 'event' or not isinstance(event, dict) or
+                                event.get('run_id') != run_id or
+                                type(event.get('sequence')) is not int or
+                                not after < event['sequence'] <= 2**64 - 1 or
+                                sequence != str(event['sequence'])):
+                            raise HudsonError('invalid event stream identity or sequence')
+                        after = event['sequence']
+                        count += 1
+                        yield event
+                        if count == max_events:
+                            return
+                        data, sequence, event_type = [], None, None
+                    elif not line.startswith(':'):
+                        name, _, value = line.partition(':')
+                        value = value.removeprefix(' ')
+                        if name == 'data':
+                            data.append(value)
+                        elif name == 'id':
+                            sequence = value
+                        elif name == 'event':
+                            event_type = value
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+            raise HttpError(status) from None
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
+            raise HudsonError(f'event stream transport failed; last cursor {after}') from None
+
     def approve(self, operation_id, *, approved):
         if type(approved) is not bool:
             raise ValueError('approved must be boolean')

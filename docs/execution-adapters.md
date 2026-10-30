@@ -1,15 +1,16 @@
 # Execution adapters
 
 Hudson's common agent loop can use an operator-owned SDK bridge instead of a
-built-in model transport. HTTP and Unix stdio bridges exchange portable model
+built-in model transport. HTTP and contained stdio bridges exchange portable model
 requests and tool proposals. The normal run, checkpoint, tool policy, approval,
 skill, memory, goal, subagent, inbox and verification paths remain authoritative.
 Bridges must return proposals without executing tools themselves.
 
 This is an integration protocol, not bundled vendor CLI support. A bridge must
 translate the chosen SDK's request, response and usage formats. Native terminal
-attachment, vendor session files, token streaming and image inputs are not
-implemented by this protocol. `GET /harnesses` reports these limits explicitly.
+attachment, vendor session files and image inputs still require separate
+integrations. Optional text streaming is described below. `GET /harnesses`
+reports the configured streaming capability explicitly.
 
 ## Configuration and discovery
 
@@ -106,6 +107,47 @@ Usage is optional; missing usage is unavailable, not zero consumption. Reports
 are consumed once and committed to the exact operation attempt. Malformed or
 wrong-identity responses cannot reuse an earlier call's report.
 
+## Provisional text streaming
+
+Set `runtime.stream: true` to request LF-delimited JSON frames on HTTP or stdio.
+The request includes `stream: true`; HTTP also sends `Accept: application/x-ndjson`.
+The bridge must send an identity frame before any text, then text deltas, then
+exactly one response frame. Each record ends with LF; CRLF is accepted. Example:
+
+```jsonl
+{"type":"start","protocol_version":1,"runtime_id":"research-sdk","runtime_version":1}
+{"type":"text_delta","text":"Looking up the answer…"}
+{"type":"response","result":{"protocol_version":1,"runtime_id":"research-sdk","runtime_version":1,"response":{"type":"final","output":42}}}
+```
+
+The entire encoded stream, including its final response, shares
+`max_response_bytes`; at most 8192 frames are accepted. Truncated, mismatched,
+out-of-order or trailing frames never settle a successful response. The IO queue
+holds at most 16 notices and applies backpressure. Cancellation is checked at
+least every 250 milliseconds while the blocking host driver is observing IO.
+No streaming setting changes the nonstreaming protocol or retries a failed call.
+
+Text becomes `model_output_delta` journal events bound to the exact run,
+operation and attempt. UTF-8 chunks are at most 4096 bytes; the first delta is
+committed immediately, then deltas are batched by size or 250 milliseconds.
+Per attempt, text is capped at the run's payload limit or 4 MiB, whichever is
+smaller, and 4096 events. Cancelled, terminal and replaced attempts cannot append
+output. These events are display evidence with `provisional: true`; they never
+execute tools, satisfy verification or complete a run. Reasoning and opaque
+continuation metadata are not text deltas.
+
+`GET /runs/{id}/events/stream` serves the journal as SSE and
+`GET /runs/{id}/events/ws` as WebSocket text messages. Both support an exclusive
+`after` cursor or `Last-Event-ID`, check run ownership, revalidate bearer tokens,
+and close after 300 seconds. There are at most 32 combined connections per host.
+Read pages hold at most 32 events and 128 KiB of encoded events, except that a
+single larger event is delivered alone. Database reads have a five-second wait
+bound and a separate 32-reader ceiling that remains held until a blocked query
+actually finishes. Socket writes have a five-second deadline. A disconnected
+observer changes no run state; reconnect explicitly from the last processed
+sequence. The Python caller exposes `stream_events()` with byte, duration and
+event bounds; it never reconnects automatically.
+
 ## Limits and lifecycle
 
 Requests and responses default to 1 MiB each; `max_request_bytes` and
@@ -127,15 +169,17 @@ unsuccessful status preserves uncertainty; it is not proof the remote model
 consumed no tokens. Cancelling HTTP observation closes the local request; the
 remote service may continue computing. No remote cancellation receipt is claimed.
 
-Stdio is available on Unix. It requires absolute `executable` and `cwd` paths,
+Stdio is available on Unix and Windows. It requires absolute `executable` and `cwd` paths,
 at most 64 arguments with a total 32 KiB ceiling, and at most 32 unique `env`
 references. The environment is empty except explicitly named values captured at
 construction. Each value is capped at 32 KiB. Interpreter scripts need an explicit
 interpreter executable and absolute script argument; no shell is inserted.
 Stderr is drained concurrently with stdin/stdout, capped at 64 KiB and never
 included in public errors. Deadline, interruption, pipe-limit failure and normal
-exit clean up the process group. Windows fails closed until equivalent process
-containment is implemented; HTTP bridges work on Windows.
+exit clean up the process group on Unix. Windows starts the process suspended,
+assigns it to a kill-on-close Job Object, then resumes it without a visible
+console. Job assignment failure rejects startup; cancellation and deadlines
+terminate descendants as well as the direct process.
 
 An adapter is trusted operator code, like a registered Rust tool. Process groups
 provide lifecycle cleanup, not filesystem/network isolation against hostile
@@ -171,7 +215,12 @@ cargo build --locked -p hudson-core --example bridge_benchmark
 python3 scripts/bench_runtime_bridge.py
 ```
 
-Both modes run 100 sequential loopback requests with 1 KiB of text, a 32-token cap,
+All three modes run 100 sequential loopback requests with 1 KiB of text, a 32-token cap,
 the same constant answer, and persistent HTTP connections. The output reports p50,
 p95 and total microseconds separately for the existing transport and bridge.
-This measures local adapter overhead, not provider quality or production throughput.
+The streaming mode adds an identity frame, one two-byte text delta and a final
+response. This measures local adapter overhead, not provider quality or production
+throughput; it excludes durable journal writes.
+
+See [dependency licensing](dependency-licensing.md) for the process and WebSocket
+components used by these integrations.

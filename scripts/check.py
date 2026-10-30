@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL_SMOKES = ('providers', 'runtime_bridge', 'browser_boundary', 'subagents', 'evaluation', 'python_tool', 'real_estate', 'follow', 'session', 'cli_responses', 'cli_proxy', 'cli_json_files', 'experiments')
+LOCAL_SMOKES = ('providers', 'runtime_bridge', 'acp', 'browser_boundary', 'subagents', 'evaluation', 'python_tool', 'real_estate', 'follow', 'session', 'cli_responses', 'cli_proxy', 'cli_json_files', 'experiments')
 DATABASE_SMOKES = ('approval', 'api', 'recovery', 'child_approval', 'user_input', 'inbox', 'memory', 'auth')
 CONFIGS = ('analyst.json', 'data-agent.json', 'team.json', 'python-tool/agent.json',
            'customer-mcp.json', 'real-estate/agent.json', 'project-files/agent.json', 'runtime-bridge.json')
@@ -37,6 +37,7 @@ def main():
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_operator_cli.py', '-v')
     run(sys.executable, 'scripts/check_api_compatibility.py')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'integrations/python', '-v')
+    run(sys.executable, '-I', '-m', 'unittest', 'discover', '-s', 'integrations/acp', '-v')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'examples/project-files', '-v')
     test = ['cargo', 'test', '--locked', '--workspace', '--all-features', '--exclude', 'hudson-temporal']
     if args.database:

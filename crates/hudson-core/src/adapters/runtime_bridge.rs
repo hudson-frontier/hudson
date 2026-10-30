@@ -231,7 +231,7 @@ enum Transport {
 pub struct BridgeModel {
     config: BridgeConfig,
     transport: std::sync::Arc<Transport>,
-    io: tokio::runtime::Runtime,
+    io: Option<tokio::runtime::Runtime>,
     max_output_tokens: u32,
     usage: Option<TokenUsage>,
 }
@@ -310,16 +310,28 @@ impl BridgeModel {
         };
         let io = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
+            .max_blocking_threads(2)
             .enable_all()
             .build()
             .map_err(|_| invalid("cannot construct runtime bridge IO worker"))?;
         Ok(Self {
             config,
             transport: std::sync::Arc::new(transport),
-            io,
+            io: Some(io),
             max_output_tokens,
             usage: None,
         })
+    }
+}
+
+impl Drop for BridgeModel {
+    fn drop(&mut self) {
+        // A configured Axum host can release its last driver from an async
+        // task. Runtime's ordinary Drop would block (and panic) in that context.
+        // Calls join their IO task before returning; only idle IO remains here.
+        if let Some(io) = self.io.take() {
+            io.shutdown_background();
+        }
     }
 }
 
@@ -386,7 +398,8 @@ impl ModelExecutor for BridgeModel {
                 self.0.abort();
             }
         }
-        let mut task = IoTask(self.io.spawn(async move {
+        let io = self.io.as_ref().expect("live bridge runtime");
+        let mut task = IoTask(io.spawn(async move {
             let result = tokio::time::timeout(deadline, exchange(&transport, body.bytes, limit))
                 .await
                 .unwrap_or_else(|_| {
@@ -411,7 +424,7 @@ impl ModelExecutor for BridgeModel {
             }
         };
         // Join abortion too: child/group guards run before returning control.
-        let _ = self.io.block_on(&mut task.0);
+        let _ = io.block_on(&mut task.0);
         let response: BridgeResponse = serde_json::from_slice(&result?)
             .map_err(|_| failed("invalid runtime bridge response"))?;
         if response.protocol_version != PROTOCOL_VERSION

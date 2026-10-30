@@ -114,7 +114,8 @@ request ceiling. Output is bounded before JSON decoding, including HTTP response
 without a content length. Deadlines default to 120 seconds and accept 1–300 seconds.
 Core context, payload, step, batch, model and shared-budget limits still apply.
 
-The adapter retains one HTTP client and one IO worker per configured runtime;
+The adapter retains one HTTP client and one asynchronous IO worker per configured
+runtime, with at most two blocking resolver workers;
 configured agent trees cap the number of runtimes at 32. The synchronous host
 driver waits outside store transactions and polls cancellation at most four
 times per second. Network and pipe IO use the private asynchronous worker.

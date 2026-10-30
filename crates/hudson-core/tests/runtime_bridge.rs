@@ -119,6 +119,16 @@ fn validates_transport_and_limits_without_io() {
     assert!(!secret_free.contains("endpoint"));
 }
 
+#[tokio::test]
+async fn async_host_can_release_a_bridge_without_blocking_runtime_shutdown() {
+    let model = tokio::task::spawn_blocking(|| {
+        BridgeModel::new(config("http://127.0.0.1:1/bridge".into()), 16).unwrap()
+    })
+    .await
+    .unwrap();
+    drop(model);
+}
+
 fn approval_cycle(store: Store) {
     let call = json!({"type":"tool_calls","calls":[{"call_id":"lookup-1","name":"lookup","arguments":{"id":42}}]});
     let (endpoint, requests, peer) = serve(vec![

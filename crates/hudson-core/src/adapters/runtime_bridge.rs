@@ -1,6 +1,6 @@
 //! Operator-owned SDK bridges. Only proposals cross this boundary; Hudson owns
-//! tool execution, history, approval and verification. Bridges are trusted code,
-//! not uploaded or sandboxed programs.
+//! tool execution, history, approval and verification. Bridges are trusted code;
+//! explicit Linux isolation can restrict their filesystem and network access.
 use super::{
     models::{ModelExecutor, ModelObserver},
     tools::ExecutionError,
@@ -10,8 +10,10 @@ use hudson_harness::{ModelRequest, ModelResponse};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::PathBuf, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+mod isolation;
 mod process;
 mod stream;
+pub use isolation::{IsolationNetwork, LinuxIsolation};
 pub use stream::Frame as BridgeStreamFrame;
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -60,6 +62,15 @@ pub enum BridgeTransport {
         /// Names only. Values are captured at construction and never serialized.
         #[serde(default)]
         env: Vec<String>,
+    },
+    IsolatedStdio {
+        executable: PathBuf,
+        #[serde(default)]
+        args: Vec<String>,
+        cwd: PathBuf,
+        #[serde(default)]
+        env: Vec<String>,
+        isolation: LinuxIsolation,
     },
 }
 
@@ -173,11 +184,21 @@ impl BridgeConfig {
                 args,
                 cwd,
                 env,
+            }
+            | BridgeTransport::IsolatedStdio {
+                executable,
+                args,
+                cwd,
+                env,
+                ..
             } => {
                 if !cfg!(any(unix, windows)) {
                     return Err(Error::Unsupported(
                         "stdio runtime bridges require process containment".into(),
                     ));
+                }
+                if let BridgeTransport::IsolatedStdio { isolation, .. } = &self.transport {
+                    isolation.validate(executable, cwd)?;
                 }
                 if !executable.is_absolute()
                     || !cwd.is_absolute()
@@ -201,8 +222,12 @@ impl BridgeConfig {
             match self.transport {
                 BridgeTransport::Http { .. } => "http_bridge",
                 BridgeTransport::Stdio { .. } => "stdio_bridge",
+                BridgeTransport::IsolatedStdio { .. } => "isolated_stdio_bridge",
             },
-            matches!(self.transport, BridgeTransport::Stdio { .. }),
+            matches!(
+                self.transport,
+                BridgeTransport::Stdio { .. } | BridgeTransport::IsolatedStdio { .. }
+            ),
         );
         descriptor.capabilities.streaming = self.stream;
         descriptor.capabilities.images = self.images;
@@ -301,6 +326,13 @@ impl BridgeModel {
                 args,
                 cwd,
                 env,
+            }
+            | BridgeTransport::IsolatedStdio {
+                executable,
+                args,
+                cwd,
+                env,
+                ..
             } => {
                 if !executable.is_file() || !cwd.is_dir() {
                     return Err(invalid(
@@ -321,9 +353,16 @@ impl BridgeModel {
                             })
                     })
                     .collect::<Result<Vec<_>>>()?;
+                let (executable, args) = match &config.transport {
+                    BridgeTransport::IsolatedStdio { isolation, .. } => (
+                        isolation.bubblewrap.clone(),
+                        isolation.prepare(executable, args, cwd)?,
+                    ),
+                    _ => (executable.clone(), args.clone()),
+                };
                 Transport::Stdio {
-                    executable: executable.clone(),
-                    args: args.clone(),
+                    executable,
+                    args,
                     cwd: cwd.clone(),
                     env,
                 }

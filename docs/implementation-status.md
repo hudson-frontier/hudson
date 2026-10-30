@@ -1,11 +1,18 @@
 # Implementation audit
 
+The opt-in Linux `isolated_stdio` transport adds explicit read-only mounts, a
+writable workspace, bounded private temporary storage and deny/host networking.
+Its separate real-Bubblewrap CI tests cover enforcement and descendant cleanup.
+It requires a protected operator installation; CPU, process-count, total-memory
+and workspace-volume quotas remain deployment responsibilities. See
+[runtime isolation](runtime-isolation.md).
+
 The execution-runtime extension now has optional bridge text streaming, an
 attempt-fenced provisional-output journal, SSE/WebSocket observation and Windows
 Job Object cleanup. Protocol fixtures and native Windows descendant-cleanup
 tests cover these paths; they do not establish vendor runtime parity. Native
-SDK adapters/session files, broader modalities, compaction, currency admission and
-filesystem/network isolation remain tracked in issue #91. See
+CLI adapters/session files, broader modalities and compaction remain tracked in
+issue #91. Persistent currency allocations are described in [spending](spending.md). See
 [execution adapters](execution-adapters.md) for current limits.
 
 Portable conversation export, fork and import use actor-scoped source artifacts

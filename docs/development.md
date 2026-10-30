@@ -6,6 +6,12 @@ PostgreSQL persistence. The [code structure](code-structure.md) describes owners
 the [implementation audit](implementation-status.md) distinguishes evidence from
 remaining work.
 
+Full Linux checks require the distribution's Bubblewrap package for runtime
+filesystem/network enforcement tests. The test launcher defaults to
+`/usr/bin/bwrap`; set `HUDSON_TEST_BWRAP` for another absolute installation path.
+Database-enabled checks include these host-dependent tests. See
+[runtime isolation](runtime-isolation.md) for grants and limitations.
+
 Temporal SDK builds require the Protocol Buffers compiler (`protoc`) on PATH.
 On Ubuntu install `protobuf-compiler`; on macOS install `protobuf` with Homebrew.
 The hosted workflow installs it explicitly.

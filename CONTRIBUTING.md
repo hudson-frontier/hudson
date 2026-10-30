@@ -18,7 +18,8 @@ Maintainers remove `triage` after assessment and may add `good first issue` or
 
 Install the pinned Rust toolchain, Python 3.12 or newer, Node.js 22 or newer, and
 `protoc`. Full integration checks also need PostgreSQL on a local `/tmp` socket
-and a dedicated, disposable test database. Linux or WSL is recommended because
+and a dedicated, disposable test database. Full Linux checks also need Bubblewrap
+for the real runtime namespace tests. Linux or WSL is recommended because
 the database and process-recovery checks use Unix facilities. See the
 [development guide](docs/development.md) for setup and test coverage.
 

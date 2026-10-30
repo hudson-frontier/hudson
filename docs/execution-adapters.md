@@ -234,3 +234,10 @@ RSS on Linux. See [image workload measurements](images.md#transport-measurement)
 
 See [dependency licensing](dependency-licensing.md) for the process and WebSocket
 components used by these integrations.
+## Linux isolation
+
+Use the opt-in [`isolated_stdio` transport](runtime-isolation.md) for explicit
+read-only runtime mounts, a writable workspace and a required network policy.
+It requires real Linux namespaces and Bubblewrap and fails closed when setup
+is unavailable. Ordinary `stdio` remains trusted operator code with process
+cleanup; use isolated transport when filesystem/network restrictions are needed.

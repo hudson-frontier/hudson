@@ -70,6 +70,12 @@ jobs:
           python-version: '3.12'
       - name: Install pinned native SDK
         run: python -m pip install -r integrations/agent_sdk/requirements.txt
+      - name: Install namespace isolation dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor-profiles
+      - name: Check kernel namespace availability
+        run: bash .github/scripts/check-namespace.sh
       - name: Build the real worker
         env:
           RUSTUP_HOME: ${{ runner.temp }}/hudson-native-rustup
@@ -77,7 +83,7 @@ jobs:
       - name: Check private native checkpoints
         run: python -I -m unittest discover -s integrations/agent_sdk -v
       - name: Exercise real SDK and worker against local fixtures
-        run: python -I scripts/smoke_native_sdk.py --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker"
+        run: python -I scripts/smoke_native_sdk.py --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap
 
   integration:
     name: Rust, PostgreSQL, and Temporal
@@ -100,12 +106,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y postgresql protobuf-compiler
+          sudo apt-get install -y postgresql protobuf-compiler bubblewrap apparmor-profiles
           sudo systemctl stop postgresql
           pg_bin="$(pg_config --bindir)"
           "$pg_bin/initdb" -D "$RUNNER_TEMP/hudson-pg" --auth=trust
           "$pg_bin/pg_ctl" -D "$RUNNER_TEMP/hudson-pg" -l "$RUNNER_TEMP/hudson-postgres.log" -o "-k /tmp -h ''" -w start
           "$pg_bin/createdb" -h /tmp hudson_harness_test_20260921
+      - name: Check kernel namespace availability
+        run: bash .github/scripts/check-namespace.sh
       - name: Run all local checks with durable execution
         shell: bash
         run: |

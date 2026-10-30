@@ -1,5 +1,10 @@
 # Runtime dependency licensing
 
+The optional Python agent peer uses OpenAI Agents SDK 0.24.0 (MIT), OpenAI
+Python SDK 3.41.0 (Apache-2.0), and httpx2 2.16.0 (BSD-3-Clause). They are
+installed as dependencies, with their original package license metadata, rather
+than vendored implementations. The peer itself remains Apache-2.0.
+
 Hudson remains Apache-2.0. Cargo.lock records the resolved dependency versions;
 distributions must retain the licenses and notices required by those packages.
 Inline image transport uses `base64` 0.22 under MIT OR Apache-2.0. It decodes

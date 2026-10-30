@@ -6,7 +6,9 @@ requests and tool proposals. The normal run, checkpoint, tool policy, approval,
 skill, memory, goal, subagent, inbox and verification paths remain authoritative.
 Bridges must return proposals without executing tools themselves.
 
-This is an integration protocol, not bundled vendor CLI support. A bridge must
+The optional [native agent SDK peer](../integrations/agent_sdk/README.md) provides
+a real SDK implementation with immutable checkpoints and host-owned tools.
+Other SDK bridges must
 translate the chosen SDK's request, response and usage formats. Native terminal
 attachment and vendor session files still require separate integrations.
 [Inline image input](images.md) requires `runtime.images: true`; the default is

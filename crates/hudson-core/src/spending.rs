@@ -333,9 +333,9 @@ impl Store {
             d.event(
                 run,
                 Some(operation),
-                EventType::OperationSettled,
+                EventType::SpendReconciled,
                 Some(actor.id.clone()),
-                serde_json::json!({"spend_reconciled":true}),
+                serde_json::json!({"attempt_id":attempt,"spend_reconciled":true}),
             );
             Ok(())
         })

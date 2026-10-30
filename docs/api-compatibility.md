@@ -3,6 +3,8 @@
 The `hudson-preview-2026-10-30-r3` revision adds actor-scoped allocation views and opt-in model-spend
 approval waits. Model operations can now use the existing approval wait type
 when configured thresholds require it. Monetary values are decimal strings;
+exhaustive event consumers must accept `spend_reconciled` without treating it
+as model-output recovery or resuming a run.
 missing priced usage is `null`. Rust `ModelProfile` literals must add
 `spend: None` to retain disabled behavior. PostgreSQL schema 4 and local snapshot
 envelope 2 protect spend state against older writers. See [migration and

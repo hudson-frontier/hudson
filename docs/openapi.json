@@ -1971,7 +1971,8 @@
               "input_queued",
               "input_consumed",
               "input_queue_cleared",
-              "model_output_delta"
+              "model_output_delta",
+              "spend_reconciled"
             ]
           },
           "actor_id": {

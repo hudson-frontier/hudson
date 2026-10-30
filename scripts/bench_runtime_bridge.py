@@ -24,7 +24,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers['Content-Length'])
-        assert 0 < length < 65536
+        assert 0 < length < (3 * 1024 * 1024 if self.path == '/image' else 65536)
         request = json.loads(self.rfile.read(length))
         if self.path in ('/bridge', '/stream'):
             assert request['max_output_tokens'] == 32
@@ -32,6 +32,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         'response': {'type': 'final', 'output': 42}}
         else:
             assert request['max_completion_tokens'] == 32
+            if self.path == '/image':
+                content = request['messages'][1]['content']
+                assert content[1]['image_url']['url'].startswith('data:image/png;base64,')
+                assert len(content[1]['image_url']['url']) == 22 + 2796200
             response = {'choices': [{'finish_reason': 'stop', 'message': {'content': '42'}}]}
         if self.path == '/stream':
             assert request['stream'] is True
@@ -52,10 +56,10 @@ if __name__ == '__main__':
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for mode in ('direct', 'bridge', 'stream'):
+        for mode in ('direct', 'bridge', 'stream', 'image'):
             result = subprocess.run([str(root/'target/debug/examples/bridge_benchmark'), mode,
-                                     f'http://127.0.0.1:{server.server_port}/{mode}', '100'],
-                                    capture_output=True, text=True, check=True, timeout=30)
+                                     f'http://127.0.0.1:{server.server_port}/{mode}', '25' if mode == 'image' else '100'],
+                                    capture_output=True, text=True, check=True, timeout=90)
             print(result.stdout.strip(), flush=True)
     finally:
         server.shutdown()

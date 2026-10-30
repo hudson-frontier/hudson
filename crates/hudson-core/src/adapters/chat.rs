@@ -230,11 +230,17 @@ fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionErr
                 blocks.push(match block {
                     Content::Text {text}=>json!({"type":"text","text":text}),
                     Content::Json {value}=>json!({"type":"text","text":value.as_str().map(str::to_owned).unwrap_or_else(||value.to_string())}),
-                    Content::Image {image}=>json!({"type":"image_url","image_url":{"url":format!("data:{};base64,{}",image.media_type,image.data)}}),
+                    Content::Image {image}=>{
+                        let mut block=json!({"type":"image_url","image_url":{}});
+                        block["image_url"]["url"]=Value::String(format!("data:{};base64,{}",image.media_type,image.data));
+                        block
+                    },
                     _=>return Err(failed("image messages cannot contain tool control blocks")),
                 });
             }
-            messages.push(json!({"role":"user","content":blocks}));
+            let mut message = json!({"role":"user"});
+            message["content"] = Value::Array(blocks);
+            messages.push(message);
             continue;
         }
         let mut text = Vec::new();
@@ -279,8 +285,8 @@ fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionErr
         }
         messages.push(item);
     }
-    let mut body =
-        json!({"model":request.model,"messages":messages,"max_completion_tokens":max_tokens});
+    let mut body = json!({"model":request.model,"max_completion_tokens":max_tokens});
+    body["messages"] = Value::Array(messages);
     if !request.tools.is_empty() {
         body["tools"] = json!(request.tools.iter().map(|t| json!({"type":"function","function":{"name":t.name,"description":t.description,"parameters":t.input_schema}})).collect::<Vec<_>>());
     }

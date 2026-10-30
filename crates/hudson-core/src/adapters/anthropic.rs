@@ -108,10 +108,14 @@ fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionErr
                 .ok_or_else(invalid)?
                 .extend(blocks);
         } else {
-            messages.push(json!({"role":role,"content":blocks}));
+            let mut message = json!({"role":role});
+            message["content"] = Value::Array(blocks);
+            messages.push(message);
         }
     }
-    let mut body = json!({"model":request.model,"system":request.instructions,"messages":messages,"max_tokens":max_tokens});
+    let mut body =
+        json!({"model":request.model,"system":request.instructions,"max_tokens":max_tokens});
+    body["messages"] = Value::Array(messages);
     if !request.tools.is_empty() {
         body["tools"] = json!(request
             .tools

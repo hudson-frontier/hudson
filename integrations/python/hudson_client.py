@@ -204,6 +204,12 @@ class HudsonClient:
     def operation(self, operation_id):
         return self._request('GET', f'/operations/{_id(operation_id)}')
 
+    def run_spend(self, run_id):
+        return self._request('GET', f'/runs/{_id(run_id)}/spend')
+
+    def operation_spend(self, operation_id):
+        return self._request('GET', f'/operations/{_id(operation_id)}/spend')
+
     def export_conversation(self, run_id):
         return self._request('GET', f'/runs/{_id(run_id)}/conversation')
 

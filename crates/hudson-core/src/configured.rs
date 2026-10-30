@@ -30,6 +30,8 @@ struct Definition {
     allow_user_input: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     runtime: Option<crate::adapters::runtime_bridge::BridgeConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    spend: Option<crate::spending::SpendPolicy>,
     #[serde(default)]
     model: Option<String>,
     #[serde(default = "endpoint")]
@@ -372,6 +374,10 @@ fn build(
     } else {
         transport_fingerprint
     };
+    let transport_fingerprint = match &definition.spend {
+        Some(policy) => crate::definitions::digest(&(&transport_fingerprint, policy))?,
+        None => transport_fingerprint,
+    };
     let model: Box<dyn ModelExecutor> = if let Some(runtime) = &definition.runtime {
         if mode == BuildMode::Experiment {
             return Err("external runtime bridges are unavailable in offline experiments".into());
@@ -712,7 +718,12 @@ fn build(
     }
     store.bind_memory(&actor.workspace_id, &reference, definition.memory)?;
     store.bind_context_policy(&actor.workspace_id, &reference, definition.context.as_ref())?;
-    store.bind_model_transport(&actor.workspace_id, &reference, &transport_fingerprint)?;
+    store.bind_priced_transport(
+        &actor.workspace_id,
+        &reference,
+        &transport_fingerprint,
+        definition.spend.as_ref(),
+    )?;
     if admission {
         // Published definitions stay identical, but no HTTP or registered tool
         // implementation is retained in an admission-only runtime.
@@ -741,6 +752,23 @@ fn validate_tree(
         );
     }
     for child in &definition.subagents {
+        if let Some(parent) = &definition.spend {
+            let child_policy = child
+                .spend
+                .as_ref()
+                .ok_or("spend-controlled teams require a policy on every child")?;
+            for quota in &parent.quotas {
+                if matches!(
+                    quota.scope,
+                    crate::spending::Scope::Workspace | crate::spending::Scope::ActorDay
+                ) && !child_policy.quotas.contains(quota)
+                {
+                    return Err(
+                        "child spend policy must retain parent workspace and daily quotas".into(),
+                    );
+                }
+            }
+        }
         validate_tree(child, depth + 1, count, names)?;
     }
     Ok(())
@@ -796,6 +824,9 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
         }
     }
     definition.limits.validate()?;
+    if let Some(policy) = &definition.spend {
+        policy.validate()?;
+    }
     definition.coordination.validate()?;
     if let Some(memory) = &definition.memory {
         memory.validate()?;

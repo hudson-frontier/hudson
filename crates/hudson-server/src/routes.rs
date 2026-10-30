@@ -397,6 +397,18 @@ async fn events(
     })
     .await
 }
+async fn run_spend(
+    State(app): State<App>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<hudson_core::spending::RunSpend>, ApiError> {
+    blocking(move || Ok(Json(app.store.run_spend(&app.actor, id)?))).await
+}
+async fn operation_spend(
+    State(app): State<App>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Option<hudson_core::spending::SpendView>>, ApiError> {
+    blocking(move || Ok(Json(app.store.operation_spend(&app.actor, id)?))).await
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Decision {
@@ -556,6 +568,7 @@ fn assemble(
                 )),
         )
         .route("/runs/{id}", get(inspect))
+        .route("/runs/{id}/spend", get(run_spend))
         .route("/runs/{id}/events", get(events))
         .route("/runs/{id}/events/stream", get(event_stream::sse))
         .route("/runs/{id}/events/ws", get(event_stream::websocket))
@@ -592,6 +605,7 @@ fn assemble(
         )
         .route("/runs/{id}/cancel", post(cancel))
         .route("/operations/{id}", get(inspect_operation))
+        .route("/operations/{id}/spend", get(operation_spend))
         .route("/operations/{id}/approval", post(approve));
     let router = if publishing {
         router

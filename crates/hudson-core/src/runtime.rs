@@ -740,17 +740,34 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             if run.status.terminal() || run.status == RunStatus::Cancelling {
                 return Err(Error::Conflict("run stopped".into()));
             }
-            let OperationRequest::Tool { tool_ref, call } = &operation.request else {
-                return Err(Error::Invalid("approval requires tool".into()));
+            let call_id = match &operation.request {
+                OperationRequest::Tool { tool_ref, call } => {
+                    let tool = &d.tools[&(approver.workspace_id.clone(), tool_ref.clone())];
+                    let policy = d
+                        .policies
+                        .get(&(approver.workspace_id.clone(), tool.policy_ref.clone()))
+                        .ok_or(Error::Denied)?;
+                    if !policy.approvers.contains(&approver.id) {
+                        return Err(Error::Denied);
+                    }
+                    Some(call.call_id.clone())
+                }
+                OperationRequest::Model { .. }
+                    if crate::spending::can_approve(d, &operation, approver) =>
+                {
+                    if operation
+                        .approval
+                        .as_ref()
+                        .is_some_and(|a| a.decisions.len() >= 64)
+                    {
+                        return Err(Error::Conflict(
+                            "model spend approval receipt limit reached".into(),
+                        ));
+                    }
+                    None
+                }
+                _ => return Err(Error::Denied),
             };
-            let tool = &d.tools[&(approver.workspace_id.clone(), tool_ref.clone())];
-            let policy = d
-                .policies
-                .get(&(approver.workspace_id.clone(), tool.policy_ref.clone()))
-                .ok_or(Error::Denied)?;
-            if !policy.approvers.contains(&approver.id) {
-                return Err(Error::Denied);
-            }
             operation
                 .approval
                 .as_mut()
@@ -767,15 +784,16 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 operation.status = OperationStatus::Pending;
             } else {
                 operation.status = OperationStatus::Denied;
-                operation.result = Some(OperationResult::Tool {
+                operation.result = call_id.map(|call_id| OperationResult::Tool {
                     result: ToolResult {
-                        call_id: call.call_id.clone(),
+                        call_id,
                         outcome: ToolOutcome::Error {
                             code: "denied".into(),
                             message: "Approval denied".into(),
                         },
                     },
                 });
+                crate::spending::release(d, operation.run_id, operation_id)?;
             }
             operation.revision += 1;
             let run_id = operation.run_id;
@@ -870,6 +888,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 index += 1;
             }
             for id in &tree {
+                crate::spending::release_unstarted(d, *id)?;
                 let run = d.runs.get_mut(id).expect("checked");
                 if run.status.terminal() || run.status == RunStatus::Cancelling {
                     continue;

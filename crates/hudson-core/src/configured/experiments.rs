@@ -48,6 +48,7 @@ impl Configuration {
             || !fixture_endpoint(&d.endpoint)
             || d.api_key_env.is_some()
             || d.runtime.is_some()
+            || d.spend.is_some()
             || (!allow_budget && d.shared_model_budget.is_some())
             || (allow_budget
                 && d.shared_model_budget

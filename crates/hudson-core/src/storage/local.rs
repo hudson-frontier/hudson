@@ -180,7 +180,7 @@ impl MemoryStore {
                     return Err(Error::Invalid("local state exceeds 64 MiB".into()));
                 }
                 let envelope: Saved = serde_json::from_slice(&bytes)?;
-                if envelope.schema_version != 1 {
+                if !matches!(envelope.schema_version, 1 | 2) {
                     return Err(Error::Unsupported("unknown local state schema".into()));
                 }
                 let mut data = envelope.state;
@@ -249,7 +249,14 @@ impl LocalFile {
         serde_json::to_writer(
             &mut snapshot,
             &Snapshot {
-                schema_version: 1,
+                schema_version: if !next.spend_policies.is_empty()
+                    || !next.spend_entries.is_empty()
+                    || !next.spend_accounts.is_empty()
+                {
+                    2
+                } else {
+                    1
+                },
                 state: &next,
             },
         )

@@ -99,6 +99,38 @@ impl<'a> RunModelObserver<'a> {
     }
 }
 impl ModelObserver for RunModelObserver<'_> {
+    fn runtime_context(
+        &self,
+        request: &hudson_harness::ModelRequest,
+    ) -> Result<Option<crate::adapters::models::RuntimeCallContext>, ExecutionError> {
+        use crate::adapters::models::{RuntimeCallContext, RuntimeCheckpoint, RuntimeHistoryMode};
+        use crate::models::OperationRequest;
+        self.store.read(|data| {
+            let run=data.run(self.actor,self.context.run_id)?;
+            let current=data.operations.get(&self.context.operation_id).ok_or(Error::NotFound)?;
+            if run.status.terminal() || run.status==RunStatus::Cancelling || current.status!=OperationStatus::Running
+                || current.attempts.last().map(|a|a.id)!=Some(self.context.attempt_id)
+                || !matches!(&current.request,OperationRequest::Model {request:expected} if expected==request) {
+                return Err(Error::Conflict("runtime invocation context changed".into()));
+            }
+            let previous_for=|id,step|data.events.get(&id).into_iter().flatten().rev().filter_map(|event|event.operation_id)
+                .filter_map(|id|data.operations.get(&id)).find(|op|op.run_id==id && op.step_index<step && op.status==OperationStatus::Succeeded && matches!(op.request,OperationRequest::Model {..}));
+            let previous=previous_for(self.context.run_id,current.step_index).or_else(|| {
+                let source=data.events.get(&self.context.run_id)?.first()?.payload.get("source_run")?.as_str()?.parse().ok()?;
+                let source_run=data.run(self.actor,source).ok()?;
+                if source_run.status!=RunStatus::Completed || source_run.agent_ref!=run.agent_ref {return None;}
+                previous_for(source,u64::MAX)
+            });
+            let mut mode=RuntimeHistoryMode::Replace;
+            let previous=previous.map(|op| {
+                let OperationRequest::Model {request:before}=&op.request else {unreachable!()};
+                if before.model==request.model && before.instructions==request.instructions && before.tools==request.tools && request.messages.starts_with(&before.messages) {mode=RuntimeHistoryMode::Append;}
+                Ok::<_,Error>(RuntimeCheckpoint {run_id:op.run_id,operation_id:op.meta.id,attempt_id:op.attempts.last().ok_or(Error::NotFound)?.id,
+                    request_fingerprint:crate::definitions::digest(before)?,input_messages:before.messages.len()})
+            }).transpose()?;
+            Ok(Some(RuntimeCallContext {call:self.context,actor:self.actor.clone(),previous,history_mode:mode,request_fingerprint:crate::definitions::digest(request)?}))
+        }).map_err(|_|unavailable())
+    }
     fn context(&self) -> Option<ModelCallContext> {
         Some(self.context)
     }

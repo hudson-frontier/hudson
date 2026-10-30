@@ -40,6 +40,8 @@ pub struct BridgeConfig {
     pub stream: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub images: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub native_sessions: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -204,6 +206,7 @@ impl BridgeConfig {
         );
         descriptor.capabilities.streaming = self.stream;
         descriptor.capabilities.images = self.images;
+        descriptor.capabilities.native_sessions = self.native_sessions;
         descriptor
     }
 }
@@ -217,6 +220,8 @@ pub struct BridgeRequest<'a> {
     pub request: &'a ModelRequest,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<super::models::RuntimeCallContext>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -227,6 +232,8 @@ pub struct BridgeResponse {
     pub response: ModelResponse,
     #[serde(default)]
     pub usage: Option<TokenUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<super::models::RuntimeCheckpoint>,
 }
 
 enum Transport {
@@ -417,6 +424,22 @@ impl ModelExecutor for BridgeModel {
             bytes: Vec::new(),
             limit: self.config.max_request_bytes,
         };
+        let context = if self.config.native_sessions {
+            Some(observer.runtime_context(request)?.ok_or_else(|| {
+                failed("native sessions require an admitted Hudson model context")
+            })?)
+        } else {
+            None
+        };
+        let expected_checkpoint = context
+            .as_ref()
+            .map(|ctx| super::models::RuntimeCheckpoint {
+                run_id: ctx.call.run_id,
+                operation_id: ctx.call.operation_id,
+                attempt_id: ctx.call.attempt_id,
+                request_fingerprint: ctx.request_fingerprint.clone(),
+                input_messages: request.messages.len(),
+            });
         serde_json::to_writer(
             &mut body,
             &BridgeRequest {
@@ -426,6 +449,7 @@ impl ModelExecutor for BridgeModel {
                 max_output_tokens: self.max_output_tokens,
                 request,
                 stream: self.config.stream,
+                context,
             },
         )
         .map_err(|_| failed("runtime bridge request exceeds limit or cannot be encoded"))?;
@@ -504,6 +528,11 @@ impl ModelExecutor for BridgeModel {
             ));
         }
         self.usage = response.usage;
+        if response.checkpoint != expected_checkpoint {
+            return Err(failed(
+                "runtime checkpoint receipt does not match the admitted model attempt",
+            ));
+        }
         if let ModelResponse::ToolCalls { calls } = &response.response {
             let mut ids = BTreeSet::new();
             if calls.is_empty()

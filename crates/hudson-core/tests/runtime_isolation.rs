@@ -62,6 +62,24 @@ mod linux {
     }
 
     #[test]
+    fn canonical_mount_sources_cannot_alias_host_proc_or_writable_workspace() {
+        let workspace = tempfile::tempdir_in("/var/tmp").unwrap();
+        let aliases = tempfile::tempdir_in("/var/tmp").unwrap();
+        for (name, source) in [
+            ("proc", Path::new("/proc")),
+            ("workspace", workspace.path()),
+        ] {
+            let alias = aliases.path().join(name);
+            std::os::unix::fs::symlink(source, &alias).unwrap();
+            let config = settings(
+                json!({"type":"isolated_stdio","executable":"/usr/bin/false","cwd":workspace.path(),
+                "isolation":{"bubblewrap":"/usr/bin/false","read_only":["/usr",alias],"network":"deny"}}),
+            );
+            assert!(BridgeModel::new(config, 32).is_err());
+        }
+    }
+
+    #[test]
     #[ignore = "requires real Linux bubblewrap; CI runs with --include-ignored"]
     fn real_isolated_stdio_enforces_filesystem_and_explicit_network_grants() {
         let workspace = tempfile::tempdir_in("/var/tmp").unwrap();

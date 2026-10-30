@@ -36,7 +36,8 @@ Only the working directory is mounted read-write. Explicit files/directories
 are mounted read-only at their configured absolute paths; all other host paths
 are absent. Mount grants must be disjoint, bounded to 32 entries, and cannot
 replace `/proc`, `/dev`, `/sys`, `/tmp` or `/run`. The executable must be in a
-read-only grant. A fresh `/proc`, minimal `/dev` and private `/tmp` are created;
+read-only grant. Canonical mount sources cannot alias reserved host paths or the
+writable workspace. A fresh `/proc`, minimal `/dev` and private `/tmp` are created;
 the remaining root is read-only. `/tmp` is limited to 1–256 MiB, default 32 MiB.
 No host home directory, credential directory, sockets or environment values
 are exposed implicitly. Only configured environment references cross the

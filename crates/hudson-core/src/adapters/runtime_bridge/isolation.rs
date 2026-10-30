@@ -29,6 +29,7 @@ pub enum IsolationNetwork {
 fn clean(path: &Path) -> bool {
     path.is_absolute()
         && path.as_os_str().len() <= 4096
+        && path.to_str().is_some_and(|value| !value.contains('\0'))
         && path
             .components()
             .all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
@@ -117,6 +118,11 @@ impl LinuxIsolation {
         for path in &self.read_only {
             let source = std::fs::canonicalize(path)
                 .map_err(|_| invalid("isolation read-only mount is unavailable"))?;
+            if reserved(&source) || source.starts_with(cwd) || cwd.starts_with(&source) {
+                return Err(invalid(
+                    "isolation source cannot expose reserved paths or alias the writable workspace",
+                ));
+            }
             let metadata = std::fs::metadata(&source)
                 .map_err(|_| invalid("isolation read-only mount is unavailable"))?;
             if !metadata.is_file() && !metadata.is_dir() {

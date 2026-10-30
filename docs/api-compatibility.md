@@ -19,6 +19,12 @@ request properties or endpoints is compatible when existing defaults, status
 codes, authorization, bounds and idempotency semantics remain unchanged.
 Clients must not assume exhaustive response object properties.
 
+The additive `/harnesses` discovery route lists configured execution adapters and
+their declared common controls. It retains this contract ID, requires the same
+host authentication and exposes no endpoint or credential configuration. Existing
+request/response schemas are unchanged. The Python caller's `harnesses()` method
+requires a server implementing this addition.
+
 Removing/renaming routes or properties, adding required request fields, changing
 types or defaults, tightening accepted values, changing terminal/wait semantics,
 introducing new status values, or changing identity/retry-key interpretation

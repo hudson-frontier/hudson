@@ -1,0 +1,16 @@
+{
+  "name": "external-runtime",
+  "instructions": "Use the configured runtime to answer the task.",
+  "model": "offline-fixture",
+  "runtime": {
+    "id": "example",
+    "version": 1,
+    "transport": {
+      "type": "http",
+      "endpoint": "http://127.0.0.1:4321/model"
+    },
+    "timeout_seconds": 30,
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 1048576
+  }
+}

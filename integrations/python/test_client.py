@@ -15,6 +15,11 @@ TOKEN = 'private-test-token'
 
 
 class ClientTests(unittest.TestCase):
+    def test_harness_discovery_is_a_read_only_catalog_request(self):
+        self.respond = lambda *_: (200, [{'id': 'fixture', 'version': 1}], {})
+        self.assertEqual(self.client.harnesses(), [{'id': 'fixture', 'version': 1}])
+        self.assertEqual([(method, path) for method, path, _, _ in self.requests], [('GET', '/harnesses')])
+
     @classmethod
     def setUpClass(cls):
         class Handler(http.server.BaseHTTPRequestHandler):

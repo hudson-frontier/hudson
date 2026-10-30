@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y postgresql protobuf-compiler
+          sudo apt-get install -y postgresql protobuf-compiler bubblewrap
           sudo systemctl stop postgresql
           pg_bin="$(pg_config --bindir)"
           "$pg_bin/initdb" -D "$RUNNER_TEMP/hudson-pg" --auth=trust
@@ -111,6 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/check.py --database hudson_harness_test_20260921 --temporal 2>&1 | tee "$RUNNER_TEMP/hudson-check.log"
+      - name: Verify real runtime filesystem and network isolation
+        env:
+          HUDSON_TEST_BWRAP: /usr/bin/bwrap
+        run: cargo test --locked -p hudson-core --test runtime_isolation -- --include-ignored
       - name: Preserve check logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

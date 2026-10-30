@@ -1,6 +1,11 @@
 # Preview HTTP compatibility
 
-The native SDK extension retains the HTTP revision and adds optional bridge
+The `hudson-preview-2026-10-30-r4` revision adds `isolated_stdio_bridge` to harness
+discovery's transport enum. Clients with exhaustive transport matching must
+handle that value. Isolation settings and host paths remain private operator
+configuration.
+
+The native SDK extension adds optional bridge
 context/receipt fields behind `native_sessions: true`. Rust `BridgeConfig`
 literals add `native_sessions: false`; `BridgeRequest` literals add
 `context: None`, and `BridgeResponse` literals add `checkpoint: None` for legacy

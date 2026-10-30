@@ -2647,7 +2647,8 @@
             "enum": [
               "provider_http",
               "http_bridge",
-              "stdio_bridge"
+              "stdio_bridge",
+              "isolated_stdio_bridge"
             ]
           },
           "capabilities": {

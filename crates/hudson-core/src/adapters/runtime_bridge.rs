@@ -45,6 +45,8 @@ pub struct BridgeConfig {
     pub images: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_sessions: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<super::reasoning::Effort>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -97,6 +99,8 @@ pub struct ExecutionCapabilities {
     pub streaming: bool,
     pub images: bool,
     pub native_sessions: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reasoning_effort: bool,
 }
 impl ExecutionDescriptor {
     pub(crate) fn new(id: String, version: u32, transport: &str, interrupt: bool) -> Self {
@@ -115,6 +119,7 @@ impl ExecutionDescriptor {
                 streaming: false,
                 images: transport == "provider_http",
                 native_sessions: false,
+                reasoning_effort: false,
             },
         }
     }
@@ -233,6 +238,7 @@ impl BridgeConfig {
         descriptor.capabilities.streaming = self.stream;
         descriptor.capabilities.images = self.images;
         descriptor.capabilities.native_sessions = self.native_sessions;
+        descriptor.capabilities.reasoning_effort = self.reasoning_effort.is_some();
         descriptor
     }
 }
@@ -243,6 +249,8 @@ pub struct BridgeRequest<'a> {
     pub runtime_id: &'a str,
     pub runtime_version: u32,
     pub max_output_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<super::reasoning::Effort>,
     pub request: &'a ModelRequest,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub stream: bool,
@@ -260,6 +268,8 @@ pub struct BridgeResponse {
     pub usage: Option<TokenUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint: Option<super::models::RuntimeCheckpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<super::reasoning::Effort>,
 }
 
 enum Transport {
@@ -487,6 +497,7 @@ impl ModelExecutor for BridgeModel {
                 runtime_id: &self.config.id,
                 runtime_version: self.config.version,
                 max_output_tokens: self.max_output_tokens,
+                reasoning_effort: self.config.reasoning_effort,
                 request,
                 stream: self.config.stream,
                 context,
@@ -568,6 +579,11 @@ impl ModelExecutor for BridgeModel {
             ));
         }
         self.usage = response.usage;
+        if response.reasoning_effort != self.config.reasoning_effort {
+            return Err(failed(
+                "runtime reasoning receipt does not match the pinned setting",
+            ));
+        }
         if response.checkpoint != expected_checkpoint {
             return Err(failed(
                 "runtime checkpoint receipt does not match the admitted model attempt",

@@ -32,6 +32,7 @@ def main():
     parser.add_argument('--python', default=sys.executable)
     parser.add_argument('--worker')
     parser.add_argument('--bubblewrap')
+    parser.add_argument('--reasoning-effort', choices=['none','minimal','low','medium','high','xhigh','max'])
     parser.add_argument('--debug', action='store_true', help='Tracebacks for synthetic fixture inputs only')
     args = parser.parse_args()
     fixture = load('sdk_fixture', ROOT/'scripts/smoke_native_sdk.py')
@@ -43,6 +44,7 @@ def main():
     class Handler(fixture.Handler):
         expected_key = 'synthetic-native-key'
         max_requests = 3
+        expected_reasoning = args.reasoning_effort
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -60,6 +62,8 @@ def main():
                        'history_mode':'replace','request_fingerprint':fingerprint(request)}
             body = {'protocol_version':1,'runtime_id':'codex-fixture','runtime_version':1,
                     'max_output_tokens':32,'stream':True,'request':request,'context':context}
+            if args.reasoning_effort is not None:
+                body['reasoning_effort'] = args.reasoning_effort
             peer = str(ROOT/'integrations/codex/peer.py')
             command = [args.python,'-I',peer]
             if args.debug:
@@ -78,6 +82,7 @@ def main():
                 return frames[-1]['result']
 
             first = invoke()
+            assert first.get('reasoning_effort') == args.reasoning_effort
             assert first['response']['type']=='tool_calls'
             tool_call = first['response']['calls'][0]
             assert tool_call['name']=='lookup_order' and tool_call['call_id']=='lookup-1'
@@ -107,6 +112,8 @@ def main():
                 fixture.requests.clear()
                 runtime = {'id':'codex-fixture','version':1,'stream':True,'native_sessions':True,'timeout_seconds':300,
                     'transport':{'type':'stdio','executable':args.python,'args':['-I',peer],'cwd':state,'env':list(env)}}
+                if args.reasoning_effort is not None:
+                    runtime['reasoning_effort'] = args.reasoning_effort
                 if args.bubblewrap:
                     prefix = pathlib.Path(subprocess.check_output([args.python,'-I','-c','import sys; print(sys.prefix)'],text=True,timeout=30).strip())
                     roots = [pathlib.Path('/usr'),pathlib.Path('/lib'),pathlib.Path('/lib64'),ROOT/'integrations',pathlib.Path(args.codex).parent.parent]

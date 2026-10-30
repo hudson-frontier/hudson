@@ -36,7 +36,7 @@ class GatewayTests(unittest.TestCase):
         try:
             tool = {'name':'lookup','description':'Read fixture','input_schema':{'type':'object'}}
             with gateway.OneRequestGateway('http://127.0.0.1:'+str(destination.server_port)+'/responses',
-                    'synthetic-upstream-secret', 'fixture', [tool], 32) as peer:
+                    'synthetic-upstream-secret', 'fixture', [tool], 32, reasoning_effort='high') as peer:
                 def call(token, body):
                     connection = http.client.HTTPConnection('127.0.0.1', peer.server.server_port, timeout=5)
                     try:
@@ -58,6 +58,7 @@ class GatewayTests(unittest.TestCase):
             auth, request = captured[0]
             self.assertEqual(auth, 'Bearer synthetic-upstream-secret')
             self.assertEqual(request['max_output_tokens'], 32)
+            self.assertEqual(request['reasoning']['effort'], 'high')
             self.assertFalse(request['parallel_tool_calls'])
             self.assertFalse(request['store'])
             self.assertEqual([tool['name'] for tool in request['tools']], [gateway.tool_alias('lookup')])

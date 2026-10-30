@@ -14,6 +14,10 @@ working directory, and these explicit environment references:
 - `HUDSON_SDK_BASE_URL`: optional HTTPS or loopback SDK API base URL.
 
 Set `runtime.native_sessions: true`. Enable `stream` and `images` when desired.
+Optional `runtime.reasoning_effort`, for example `"high"`, is forwarded through
+the real SDK and acknowledged in its receipt. It does not increase the output
+allocation. The transport verifies the SDK's applied effort and output cap
+before provider IO, and bounds the actual upstream request to 4 MiB.
 Use a new immutable agent version when changing runtime settings. Pure config
 validation does not import the SDK, inspect credentials or start the peer.
 

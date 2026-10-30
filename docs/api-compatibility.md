@@ -5,6 +5,13 @@ The `hudson-preview-2026-10-30-r8` revision adds the account catalog and transie
 in request bodies and change no run execution binding. Session keys and results
 live only until expiry/restart. See [native account lifecycle](runtime-accounts.md).
 
+The `hudson-preview-2026-10-30-r6` revision documents the optional native
+`reasoning_effort` discovery flag. Bridge JSON gains optional request/receipt
+fields for an explicitly pinned effort. Existing omitted settings retain their
+serialization. Rust `BridgeConfig`, `BridgeRequest` and `BridgeResponse` literals
+add `reasoning_effort: None`; `ExecutionCapabilities` literals add
+`reasoning_effort: false`. Peers must acknowledge an enabled setting exactly.
+
 The `hudson-preview-2026-10-30-r5` revision adds the explicit `compact` queue kind
 with null input and the `context_compacted` event. Exhaustive message/event
 consumers must handle them. Compaction remains a durable control and does not

@@ -87,6 +87,7 @@ impl AccountConfig {
             stream: false,
             images: false,
             native_sessions: false,
+            reasoning_effort: None,
         }
     }
     pub fn descriptor(&self) -> AccountDescriptor {

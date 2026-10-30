@@ -2907,6 +2907,11 @@
               },
               "native_sessions": {
                 "type": "boolean"
+              },
+              "reasoning_effort": {
+                "type": "boolean",
+                "default": false,
+                "description": "True when native effort is explicitly pinned and an exact peer receipt is required."
               }
             }
           }

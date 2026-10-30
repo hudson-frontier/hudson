@@ -41,7 +41,12 @@ fn config(endpoint: String) -> BridgeConfig {
 #[test]
 fn explicit_reasoning_requires_an_exact_receipt_and_preserves_usage_and_output_cap() {
     use hudson_core::adapters::reasoning::Effort;
-    for received in [None, Some(Effort::High), Some(Effort::Low)] {
+    for (expected, received) in [
+        (Some(Effort::Low), None),
+        (Some(Effort::Low), Some(Effort::High)),
+        (Some(Effort::Low), Some(Effort::Low)),
+        (None, Some(Effort::High)),
+    ] {
         let mut response = reply(json!({"type":"final","output":42}));
         if let Some(effort) = received {
             response["reasoning_effort"] = json!(effort);
@@ -52,18 +57,22 @@ fn explicit_reasoning_requires_an_exact_receipt_and_preserves_usage_and_output_c
             .unwrap()
             .get("reasoning_effort")
             .is_none());
-        settings.reasoning_effort = Some(Effort::Low);
-        assert!(settings.descriptor().capabilities.reasoning_effort);
-        let mut model = BridgeModel::new(settings, 32).unwrap();
+        settings.reasoning_effort = expected;
         assert_eq!(
-            model.call(&request()).is_ok(),
-            received == Some(Effort::Low)
+            settings.descriptor().capabilities.reasoning_effort,
+            expected.is_some()
         );
+        let mut model = BridgeModel::new(settings, 32).unwrap();
+        assert_eq!(model.call(&request()).is_ok(), received == expected);
         assert_eq!(model.take_usage().unwrap().input_tokens, 10);
         assert!(model.take_usage().is_none());
         peer.join().unwrap();
         let sent = requests.lock().unwrap();
-        assert_eq!(sent[0]["reasoning_effort"], "low");
+        if expected.is_some() {
+            assert_eq!(sent[0]["reasoning_effort"], "low");
+        } else {
+            assert!(sent[0].get("reasoning_effort").is_none());
+        }
         assert_eq!(sent[0]["max_output_tokens"], 32);
     }
 }

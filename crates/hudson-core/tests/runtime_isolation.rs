@@ -46,8 +46,7 @@ mod linux {
     use std::{io::Write, net::TcpListener, path::Path, time::Duration};
 
     fn launcher() -> String {
-        std::env::var("HUDSON_TEST_BWRAP")
-            .expect("set HUDSON_TEST_BWRAP to the real bubblewrap executable")
+        std::env::var("HUDSON_TEST_BWRAP").unwrap_or_else(|_| "/usr/bin/bwrap".into())
     }
     fn request() -> ModelRequest {
         ModelRequest {

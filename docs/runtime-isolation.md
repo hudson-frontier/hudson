@@ -72,9 +72,10 @@ a new process group:
 HUDSON_TEST_BWRAP=/usr/bin/bwrap cargo test --locked -p hudson-core --test runtime_isolation -- --include-ignored
 ```
 
-CI installs Bubblewrap and runs these tests explicitly. The ordinary workspace
-test run marks the two host-dependent cases ignored; that is not enforcement
-acceptance. No performance improvement is claimed; isolation adds process and
+CI installs Bubblewrap and the full database-enabled check runs these tests with
+`--include-ignored`. The ordinary workspace test run marks the two host-dependent
+cases ignored; that is not enforcement acceptance. The default test launcher is
+`/usr/bin/bwrap`. No performance improvement is claimed; isolation adds process and
 namespace setup work per attempt.
 
 Adding `BridgeTransport::IsolatedStdio` expands the public Rust enum. Downstream

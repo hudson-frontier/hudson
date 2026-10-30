@@ -3,6 +3,7 @@ pub mod backend;
 pub mod config;
 pub mod context;
 pub mod engine;
+pub mod images;
 pub mod protocol;
 pub mod state;
 

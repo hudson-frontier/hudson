@@ -58,7 +58,7 @@ fn bound(value: &impl Serialize, limit: usize) -> Result<usize> {
 impl Transcript {
     pub fn validate(&self, max_bytes: usize) -> Result<()> {
         bound(self, max_bytes.min(MAX_TRANSCRIPT_BYTES))?;
-        if self.format_version != 1
+        if !matches!(self.format_version, 1 | 2)
             || self.messages.is_empty()
             || self.messages.len() > MAX_MESSAGES
             || self.messages[0].role != Role::User
@@ -74,7 +74,28 @@ impl Transcript {
             return Err(Error::Invalid("excessive archived message count".into()));
         }
         validate_messages(&self.messages)?;
+        if self.format_version == 1
+            && self
+                .messages
+                .iter()
+                .flat_map(|m| &m.content)
+                .any(|c| matches!(c, Content::Image { .. }))
+        {
+            return Err(Error::Invalid(
+                "image transcripts require format version 2".into(),
+            ));
+        }
+        hudson_harness::images::validate_history(&self.messages)?;
         for exchange in &self.archived_exchanges {
+            if exchange
+                .iter()
+                .flat_map(|m| &m.content)
+                .any(|c| matches!(c, Content::Image { .. }))
+            {
+                return Err(Error::Invalid(
+                    "transferred images must remain in live messages".into(),
+                ));
+            }
             validate_messages(exchange)?;
         }
         Ok(())
@@ -108,6 +129,9 @@ fn validate_messages(messages: &[Message]) -> Result<()> {
         for content in &message.content {
             match content {
                 Content::Text { .. } | Content::Json { .. } if message.role != Role::Tool => {}
+                Content::Image { image } if message.role == Role::User => {
+                    image.validate()?;
+                }
                 Content::ToolCall { call }
                     if message.role == Role::Assistant
                         && call.provider_metadata.is_null()
@@ -237,6 +261,14 @@ pub(crate) fn export(data: &Data, actor: &Actor, run_id: Uuid) -> Result<Transcr
             message.content.push(content);
             message.content.extend(suffix);
         }
+    }
+    if transcript
+        .messages
+        .iter()
+        .flat_map(|m| &m.content)
+        .any(|c| matches!(c, Content::Image { .. }))
+    {
+        transcript.format_version = 2;
     }
     transcript.validate(MAX_TRANSCRIPT_BYTES)?;
     Ok(transcript)

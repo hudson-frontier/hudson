@@ -2,6 +2,8 @@
 
 Hudson remains Apache-2.0. Cargo.lock records the resolved dependency versions;
 distributions must retain the licenses and notices required by those packages.
+Inline image transport uses `base64` 0.22 under MIT OR Apache-2.0. It decodes
+bounded transport bytes without introducing an image codec or executing files.
 No external runtime implementation is vendored into the execution bridge.
 
 The Windows process lifetime adapter uses `process-wrap` 10.0.1 under the

@@ -8,8 +8,9 @@ Bridges must return proposals without executing tools themselves.
 
 This is an integration protocol, not bundled vendor CLI support. A bridge must
 translate the chosen SDK's request, response and usage formats. Native terminal
-attachment, vendor session files and image inputs still require separate
-integrations. Optional text streaming is described below. `GET /harnesses`
+attachment and vendor session files still require separate integrations.
+[Inline image input](images.md) requires `runtime.images: true`; the default is
+false and rejects images before external IO. Optional text streaming is described below. `GET /harnesses`
 reports the configured streaming capability explicitly.
 
 ## Configuration and discovery

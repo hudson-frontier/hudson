@@ -239,6 +239,6 @@ fn imports_reject_incomplete_exchanges_provider_state_unsupported_artifacts_and_
     assert!(artifact.validate(65536).is_err());
     assert!(base.validate(1).is_err());
     let mut version = base;
-    version.format_version = 2;
+    version.format_version = 3;
     assert!(version.validate(65536).is_err());
 }

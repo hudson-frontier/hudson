@@ -139,7 +139,8 @@ redirects are disabled, requests time out, responses are capped at 2 MiB, and
 ambiguous transport failures are not retried automatically. Gemini/Ollama presets
 use `max_tokens`; default OpenAI uses `max_completion_tokens`.
 
-Adapters support text/JSON and client function tools. Chat responses retain
+Adapters support text/JSON, [explicit user image input](images.md), and client
+function tools. Chat responses retain
 assistant text alongside tool calls through checkpoints and restore that text
 exactly once in the next provider request. Refusal-bearing or unsupported content
 cannot dispatch tools. The continuation follows the documented
@@ -150,8 +151,8 @@ Chat tool calls retain
 `extra_content` and `thought_signature`. Anthropic tool cycles retain signed
 thinking, redacted thinking, and interleaved text in checkpoint metadata. Tool
 executors receive arguments, not that metadata. Tests cover checkpoint roundtrips.
-This is not universal model/modality support: multimodal input, server-side tools,
-and some provider-specific modes are absent. Optional reasoning effort and native
+Provider file IDs, image-bearing tool results, server-side tools and some
+provider-specific modes require further integrations. Optional reasoning effort and native
 thinking budgets are described in the [harness controls guide](harness-controls.md).
 
 Supply `ModelExecutor` to integrate another model protocol. Model/provider
@@ -352,8 +353,9 @@ or body processing. Ordinary CLI clients do not need an `Origin` header. Loopbac
 port forwarding can retain its externally selected port.
 
 The fixture preview remains `hudson-server --demo`; the explicit fixture input is
-`hudson agent start --order 123 [--refund]`. Events are cursor-polled;
-SSE/WebSocket streaming, public authentication, and multi-tenant hosting are absent.
+`hudson agent start --order 123 [--refund]`. Events support cursor polling and
+SSE/WebSocket observation. Configured hosts use scoped local bearer credentials;
+hosted multi-tenant provisioning remains separate work.
 
 To test a separately built operator client against the real backend, set
 `HUDSON_TEST_OPERATOR_CLI` to its absolute binary path before running

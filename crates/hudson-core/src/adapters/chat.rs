@@ -216,8 +216,27 @@ fn reported_usage(value: &Value, anthropic: bool) -> Option<crate::models::Token
 }
 
 fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionError> {
+    hudson_harness::images::validate_history(&request.messages)
+        .map_err(|_| failed("invalid image input"))?;
     let mut messages = vec![json!({"role":"system", "content":request.instructions})];
     for message in &request.messages {
+        if message
+            .content
+            .iter()
+            .any(|block| matches!(block, Content::Image { .. }))
+        {
+            let mut blocks = Vec::with_capacity(message.content.len());
+            for block in &message.content {
+                blocks.push(match block {
+                    Content::Text {text}=>json!({"type":"text","text":text}),
+                    Content::Json {value}=>json!({"type":"text","text":value.as_str().map(str::to_owned).unwrap_or_else(||value.to_string())}),
+                    Content::Image {image}=>json!({"type":"image_url","image_url":{"url":format!("data:{};base64,{}",image.media_type,image.data)}}),
+                    _=>return Err(failed("image messages cannot contain tool control blocks")),
+                });
+            }
+            messages.push(json!({"role":"user","content":blocks}));
+            continue;
+        }
         let mut text = Vec::new();
         let mut calls = Vec::new();
         let mut assistant_text_seen = false;

@@ -202,9 +202,21 @@ impl Store {
         &self,
         actor: &Actor,
         reference: &VersionRef,
-        mut turn: crate::conversations::ImportedTurn,
+        turn: crate::conversations::ImportedTurn,
         target: crate::scheduling::ScheduleTarget,
     ) -> Result<uuid::Uuid> {
+        self.import_published_turn_with_images(actor, reference, turn, Vec::new(), target)
+    }
+
+    pub fn import_published_turn_with_images(
+        &self,
+        actor: &Actor,
+        reference: &VersionRef,
+        mut turn: crate::conversations::ImportedTurn,
+        images: Vec<hudson_harness::images::Image>,
+        target: crate::scheduling::ScheduleTarget,
+    ) -> Result<uuid::Uuid> {
+        hudson_harness::images::validate_turn(&images)?;
         let config = self
             .published_configuration(actor, reference)?
             .for_submission(actor, &turn.request_key)?;
@@ -214,9 +226,39 @@ impl Store {
                 .build_admission_tree(staging.clone(), actor)
                 .map_err(invalid)?;
             turn.goal = tree.goal.clone();
-            let id = tree
-                .runtime
-                .import_turn(actor, tree.reference.clone(), turn, Some(target))?;
+            let id = tree.runtime.import_turn_with_images(
+                actor,
+                tree.reference.clone(),
+                turn,
+                images,
+                Some(target),
+            )?;
+            *data = staging.read(|snapshot| Ok(snapshot.clone()))?;
+            Ok(id)
+        })
+    }
+
+    /// Restore a pinned publication without reading its original files or secrets.
+    pub fn submit_published_images(
+        &self,
+        actor: &Actor,
+        reference: &VersionRef,
+        mut turn: crate::multimodal::ImageTurn,
+        target: crate::scheduling::ScheduleTarget,
+    ) -> Result<uuid::Uuid> {
+        hudson_harness::images::validate_turn(&turn.images)?;
+        let config = self
+            .published_configuration(actor, reference)?
+            .for_submission(actor, &turn.request_key)?;
+        self.transact(|data| {
+            let staging = Store::staging(data.clone());
+            let tree = config
+                .build_admission_tree(staging.clone(), actor)
+                .map_err(invalid)?;
+            turn.goal = tree.goal.clone();
+            let id =
+                tree.runtime
+                    .submit_images(actor, tree.reference.clone(), turn, Some(target))?;
             *data = staging.read(|snapshot| Ok(snapshot.clone()))?;
             Ok(id)
         })

@@ -1,5 +1,17 @@
 # Preview HTTP compatibility
 
+The `hudson-preview-2026-10-30-r2` revision adds explicit image submission,
+optional image attachments on fork/import, and image blocks in portable
+transcripts using `format_version: 2`. Text-only exports retain format 1.
+Exhaustive transcript content consumers must accept the `image`
+variant. Fork bodies now use the same 5 MiB allowance and four shared request
+slots as import/image submission. Ordinary `/runs` JSON retains its meaning and
+64 KiB body ceiling. Rust bridge configuration literals need `images: false`
+unless opted in; exhaustive `Content` and `Input` matches must handle `Image`
+and `StartImages`. Existing JSON bridge configurations default to no images.
+Use matching binaries in a namespace containing image operations: older readers
+reject those new typed variants. See [image transport and bounds](images.md).
+
 The current unversioned HTTP routes are a preview. The client contract is
 identified by `contract_id` in [api-compatibility.json](api-compatibility.json),
 independently of the release version. No stable `/v1` API or cross-version
@@ -36,11 +48,12 @@ host authentication and exposes no endpoint or credential configuration. Existin
 request/response schemas are unchanged. The Python caller's `harnesses()` method
 requires a server implementing this addition.
 
-The additive conversation export, fork and import routes retain this revision.
+The initial conversation export, fork and import routes retain revision r1.
 They use a separate `format_version: 1` portable transcript and preserve existing
 submission behavior. Imported context does not carry execution authority. The
-larger 5 MiB body allowance is restricted to `/runs/import`; existing routes keep
-their 64 KiB limit. The Python transfer methods require these new routes.
+initial larger 5 MiB body allowance was restricted to `/runs/import`; r2 extends
+it to image submission and fork. Other routes retain 64 KiB. The Python transfer
+methods require these routes.
 
 Removing/renaming routes or properties, adding required request fields, changing
 types or defaults, tightening accepted values, changing terminal/wait semantics,

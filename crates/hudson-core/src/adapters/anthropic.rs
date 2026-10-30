@@ -72,6 +72,7 @@ impl ModelExecutor for AnthropicModel {
     }
 }
 fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionError> {
+    hudson_harness::images::validate_history(&request.messages).map_err(|_| invalid())?;
     let mut messages: Vec<Value> = Vec::new();
     for message in &request.messages {
         let role = if message.role == Role::Assistant {
@@ -89,6 +90,7 @@ fn encode(request: &ModelRequest, max_tokens: u32) -> Result<Value, ExecutionErr
             blocks.push(match content {
                 Content::Text { text } => json!({"type":"text","text":text}),
                 Content::Json { value } => json!({"type":"text","text":value.as_str().map(str::to_owned).unwrap_or_else(||value.to_string())}),
+                Content::Image {image} if message.role==Role::User=>json!({"type":"image","source":{"type":"base64","media_type":image.media_type,"data":image.data}}),
                 Content::ToolCall { call } if message.role==Role::Assistant => json!({"type":"tool_use","id":call.call_id,"name":call.name,"input":call.arguments}),
                 Content::ToolResult { result } if message.role==Role::Tool => json!({"type":"tool_result","tool_use_id":result.call_id,"is_error":matches!(result.outcome,ToolOutcome::Error { .. }),"content":serde_json::to_string(&result.outcome).map_err(|_|invalid())?}),
                 _ => return Err(invalid()),

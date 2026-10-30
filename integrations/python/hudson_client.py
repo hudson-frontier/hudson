@@ -171,6 +171,12 @@ class HudsonClient:
             body['agent_ref'] = agent_ref
         return self._request('POST', '/runs', body)
 
+    def start_images(self, input, images, *, request_key, agent_ref=None):
+        body = {'input': input, 'images': images, 'request_key': _key(request_key)}
+        if agent_ref is not None:
+            body['agent_ref'] = agent_ref
+        return self._request('POST', '/runs/images', body, max_request_bytes=5 * 1024 * 1024)
+
     def run(self, run_id):
         run_id = _id(run_id)
         view = self._request('GET', f'/runs/{run_id}')
@@ -201,17 +207,22 @@ class HudsonClient:
     def export_conversation(self, run_id):
         return self._request('GET', f'/runs/{_id(run_id)}/conversation')
 
-    def import_conversation(self, transcript, input, *, request_key, agent_ref=None):
+    def import_conversation(self, transcript, input, *, request_key, agent_ref=None, images=None):
         body = {'transcript': transcript, 'input': input, 'request_key': _key(request_key)}
         if agent_ref is not None:
             body['agent_ref'] = agent_ref
+        if images is not None:
+            body['images'] = images
         return self._request('POST', '/runs/import', body, max_request_bytes=5 * 1024 * 1024)
 
-    def fork(self, run_id, input, *, request_key, agent_ref=None):
+    def fork(self, run_id, input, *, request_key, agent_ref=None, images=None):
         body = {'input': input, 'request_key': _key(request_key)}
         if agent_ref is not None:
             body['agent_ref'] = agent_ref
-        return self._request('POST', f'/runs/{_id(run_id)}/fork', body)
+        if images is not None:
+            body['images'] = images
+        return self._request('POST', f'/runs/{_id(run_id)}/fork', body,
+                             max_request_bytes=5 * 1024 * 1024 if images is not None else 64 * 1024)
 
     def stream_events(self, run_id, *, after=0, max_events=10000, max_seconds=300):
         """Observe one bounded SSE connection. Save each sequence before reconnecting.

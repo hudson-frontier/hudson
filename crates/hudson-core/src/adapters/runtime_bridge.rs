@@ -38,6 +38,8 @@ pub struct BridgeConfig {
     pub max_response_bytes: usize,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stream: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub images: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -97,7 +99,7 @@ impl ExecutionDescriptor {
                 subagents: true,
                 interrupt,
                 streaming: false,
-                images: false,
+                images: transport == "provider_http",
                 native_sessions: false,
             },
         }
@@ -201,6 +203,7 @@ impl BridgeConfig {
             matches!(self.transport, BridgeTransport::Stdio { .. }),
         );
         descriptor.capabilities.streaming = self.stream;
+        descriptor.capabilities.images = self.images;
         descriptor
     }
 }
@@ -397,6 +400,16 @@ impl ModelExecutor for BridgeModel {
         observer: &mut dyn ModelObserver,
     ) -> std::result::Result<ModelResponse, ExecutionError> {
         self.usage = None;
+        let has_images = request
+            .messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .any(|c| matches!(c, hudson_harness::Content::Image { .. }));
+        if has_images && !self.config.images {
+            return Err(failed("runtime bridge does not declare image support"));
+        }
+        hudson_harness::images::validate_history(&request.messages)
+            .map_err(|_| failed("invalid runtime image input"))?;
         if observer.cancelled() {
             return Err(failed("runtime bridge cancelled before dispatch"));
         }

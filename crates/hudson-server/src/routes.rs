@@ -27,6 +27,7 @@ use std::{
 use uuid::Uuid;
 mod conversations;
 mod event_stream;
+mod images;
 
 struct NoModel(Option<hudson_core::budgets::ModelBudgetBinding>);
 impl ModelExecutor for NoModel {
@@ -513,6 +514,7 @@ fn assemble(
                         for (path, schema) in [
                             ("/runs/import", "PublishedConversationImport"),
                             ("/runs/{id}/fork", "PublishedConversationFork"),
+                            ("/runs/images", "PublishedImageSubmission"),
                         ] {
                             specification["paths"][path]["post"]["requestBody"]["content"]
                                 ["application/json"]["schema"] =
@@ -542,12 +544,33 @@ fn assemble(
             get(move || async move { Json(execution_catalog) }),
         )
         .route("/runs", post(submit))
+        .route(
+            "/runs/images",
+            post(images::submit)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    conversations::MAX_IMPORT_BYTES,
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    app.import_slots.clone(),
+                    conversations::gate,
+                )),
+        )
         .route("/runs/{id}", get(inspect))
         .route("/runs/{id}/events", get(events))
         .route("/runs/{id}/events/stream", get(event_stream::sse))
         .route("/runs/{id}/events/ws", get(event_stream::websocket))
         .route("/runs/{id}/conversation", get(conversations::export))
-        .route("/runs/{id}/fork", post(conversations::fork))
+        .route(
+            "/runs/{id}/fork",
+            post(conversations::fork)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    conversations::MAX_IMPORT_BYTES,
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    app.import_slots.clone(),
+                    conversations::gate,
+                )),
+        )
         .route(
             "/runs/import",
             post(conversations::import_turn)

@@ -7,6 +7,7 @@ use serde_json::Value;
 pub enum Content {
     Text { text: String },
     Json { value: Value },
+    Image { image: crate::images::Image },
     Artifact { id: String, media_type: String },
     ToolCall { call: ToolCall },
     ToolResult { result: ToolResult },
@@ -74,6 +75,10 @@ pub enum Input {
     },
     Start {
         value: Value,
+    },
+    StartImages {
+        value: Value,
+        images: Vec<crate::images::Image>,
     },
     Model {
         response: ModelResponse,

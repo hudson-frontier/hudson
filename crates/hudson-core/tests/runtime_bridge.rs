@@ -341,14 +341,24 @@ fn interruption_kills_process_group_and_redacts_diagnostics() {
     assert!(matches!(result, Err(ExecutionError::Unknown(_))));
     assert!(start.elapsed() < Duration::from_secs(3));
     let pid = std::fs::read_to_string(pid_file).unwrap();
-    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
-    // Orphan zombies can await init reaping; they cannot execute or retain pipes.
-    assert!(
-        status.is_empty()
+    let terminated = Instant::now();
+    loop {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+        // Signal delivery is asynchronous. Orphan zombies can await init
+        // reaping; they cannot execute or retain pipes.
+        if status.is_empty()
             || status
                 .lines()
                 .any(|s| s.starts_with("State:") && s.contains("Z (zombie)"))
-    );
+        {
+            break;
+        }
+        assert!(
+            terminated.elapsed() < Duration::from_secs(2),
+            "descendant did not terminate: {status}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let mut model = BridgeModel::new(
         stdio("import sys\nsys.stderr.write('secret-diagnostic')\nsys.exit(7)".into()),
         16,

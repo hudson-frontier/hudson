@@ -9,6 +9,8 @@ import pathlib
 import tempfile
 import unittest
 import uuid
+import tomllib
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('codex_peer', pathlib.Path(__file__).with_name('peer.py'))
 peer = importlib.util.module_from_spec(spec)
@@ -16,6 +18,24 @@ spec.loader.exec_module(peer)
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_private_profile_disables_background_state_and_does_not_inherit_credentials(self):
+        class Gateway:
+            base_url = 'http://127.0.0.1:1/v1'
+            token = 'synthetic-child-token'
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {
+                'OPENAI_API_KEY':'must-stay-in-parent','SSH_AUTH_SOCK':'private-agent',
+                'GIT_CONFIG_GLOBAL':'private-global-config'}):
+            home = pathlib.Path(temporary)
+            child = peer.configuration(home, Gateway(), 'fixture')
+            self.assertNotIn('OPENAI_API_KEY', child)
+            self.assertNotIn('SSH_AUTH_SOCK', child)
+            self.assertEqual(child['GIT_CONFIG_GLOBAL'], os.devnull)
+            config = tomllib.loads((home/'config.toml').read_text())
+            for feature in ('shell_snapshot','workspace_dependencies','hooks','plugins','multi_agent',
+                            'goals','daemon_auto_start','unbounded_connection_retries'):
+                self.assertFalse(config['features'][feature])
+            self.assertEqual(child['HUDSON_CODEX_PROXY_TOKEN'], Gateway.token)
+
     def test_native_aliases_do_not_turn_literal_json_into_images(self):
         literal = {'type':'image','image':{'media_type':'image/png','data':'YQ=='}}
         messages = [{'role':'user','content':[{'type':'json','value':literal}]},

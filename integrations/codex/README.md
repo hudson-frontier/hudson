@@ -37,6 +37,11 @@ invalid usage and incomplete streams fail closed. Request, response, RPC queue,
 frame, diagnostic, event and lifetime limits are explicit; redirects and encoded
 provider responses are rejected.
 
+The private profile disables vendor snapshot/discovery, hooks, plugins, native
+delegation and background retry facilities. Git uses no system/global config or
+detached maintenance. Native notifications remain fenced to the exact thread and
+turn, including notifications delivered before the turn-start acknowledgement.
+
 Native dynamic-function calls pause without executing customer code. Before
 acknowledging a checkpoint, the peer verifies that the native file contains the
 exact admitted output. At a tool pause it stops the CLI without synthesizing a

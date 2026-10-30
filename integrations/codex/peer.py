@@ -13,6 +13,7 @@ import stat
 import sys
 import tempfile
 import uuid
+from collections import deque
 
 ROOT = pathlib.Path(__file__).resolve().parent
 VERSION = '0.165.0'
@@ -35,7 +36,14 @@ def configuration(home, proxy, model):
     values = [
         'model = '+json.dumps(model), 'model_provider = "hudson"',
         'project_doc_max_bytes = 0', 'model_auto_compact_token_limit = 9223372036854775807',
-        '[features]', 'shell_tool = false', '[model_providers.hudson]', 'name = "Hudson"',
+        '[features]', 'shell_tool = false', 'shell_snapshot = false',
+        'workspace_dependencies = false', 'hooks = false', 'plugins = false', 'apps = false',
+        'multi_agent = false', 'goals = false', 'daemon_auto_start = false',
+        'skill_mcp_dependency_install = false', 'skip_host_skill_discovery = true',
+        'unbounded_connection_retries = false', 'unified_exec = false', 'code_mode_host = false',
+        'browser_use = false', 'computer_use = false', 'image_generation = false',
+        'view_image = false', 'sleep_tool = false',
+        '[model_providers.hudson]', 'name = "Hudson"',
         'base_url = '+json.dumps(proxy.base_url), 'wire_api = "responses"',
         'env_key = "HUDSON_CODEX_PROXY_TOKEN"', 'request_max_retries = 0',
         'stream_max_retries = 0', 'requires_openai_auth = false', 'supports_websockets = false',
@@ -46,6 +54,12 @@ def configuration(home, proxy, model):
     env = {key: value for key, value in os.environ.items()
            if key.upper() in ('SYSTEMROOT', 'WINDIR', 'PATH', 'TEMP', 'TMP')}
     env.update(CODEX_HOME=str(home), HUDSON_CODEX_PROXY_TOKEN=proxy.token)
+    # Private native profiles need no global Git hooks, credentials or detached
+    # maintenance. Any required local metadata work stays in the owned tree.
+    env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_COUNT='3', GIT_CONFIG_KEY_0='gc.auto', GIT_CONFIG_VALUE_0='0',
+        GIT_CONFIG_KEY_1='gc.autoDetach', GIT_CONFIG_VALUE_1='false',
+        GIT_CONFIG_KEY_2='maintenance.auto', GIT_CONFIG_VALUE_2='false')
     return env
 
 
@@ -197,9 +211,9 @@ def run(body, saved):
                     raise ValueError('native resolved provider binding changed')
                 thread_id = str(uuid.UUID(result['thread']['id']))
                 client.call('thread/inject_items', {'threadId':thread_id, 'items':delta}, client.deny)
-                early = []
+                early = deque()
                 def turn_event(event):
-                    if event.get('method') == 'item/tool/call':
+                    if event.get('method') in ('item/tool/call', 'turn/completed'):
                         if len(early)>=128:
                             raise ValueError('native callback ceiling')
                         early.append(event)
@@ -212,14 +226,16 @@ def run(body, saved):
                 turn_id = started['turn']['id']
                 callback = None
                 while True:
-                    event = early.pop(0) if early else client.receive()
+                    event = early.popleft() if early else client.receive()
                     if event.get('method') == 'item/tool/call':
                         callback = event['params']
                         if callback.get('threadId') != thread_id or callback.get('turnId') != turn_id:
                             raise ValueError('native callback thread changed')
                         break
                     if event.get('method') == 'turn/completed':
-                        if event['params']['turn']['status'] != 'completed':
+                        if (event['params'].get('threadId') != thread_id
+                                or event['params']['turn'].get('id') != turn_id
+                                or event['params']['turn']['status'] != 'completed'):
                             raise ValueError('native turn did not complete')
                         break
                     if 'id' in event:

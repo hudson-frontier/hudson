@@ -78,6 +78,12 @@ cases ignored; that is not enforcement acceptance. The default test launcher is
 `/usr/bin/bwrap`. No performance improvement is claimed; isolation adds process and
 namespace setup work per attempt.
 
+The native SDK CI job also runs the actual worker/SDK tool cycle through this
+transport, using explicit `host` networking to reach its synthetic loopback
+provider and private native checkpoints in the writable workspace. Reproduce
+with `scripts/smoke_native_sdk.py --python /absolute/sdk/python --worker
+/absolute/hudson-worker --bubblewrap /usr/bin/bwrap`.
+
 Adding `BridgeTransport::IsolatedStdio` expands the public Rust enum. Downstream
 exhaustive matches must handle the new variant. Existing serialized `http` and
 `stdio` configurations are unchanged; public discovery reports the new transport

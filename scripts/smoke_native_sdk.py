@@ -89,12 +89,13 @@ def main():
     parser.add_argument('--python', default=sys.executable)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--worker', help='Also run through this real Hudson worker binary')
+    parser.add_argument('--bubblewrap', help='Run the actual worker peer through Linux isolation')
     args = parser.parse_args()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with tempfile.TemporaryDirectory(prefix='hudson-native-sdk-') as state:
+        with tempfile.TemporaryDirectory(prefix='hudson-native-sdk-', dir='/var/tmp' if args.bubblewrap else None) as state:
             env = {'OPENAI_API_KEY': 'synthetic-sdk-key', 'HUDSON_SDK_STATE_DIR': state,
                    'HUDSON_SDK_BASE_URL': f'http://127.0.0.1:{server.server_port}/v1',
                    'PATH': os.environ.get('PATH', '')}
@@ -154,6 +155,17 @@ def main():
                         'input_schema': {'type': 'object', 'properties': {'order_id': {'type': 'string'}},
                             'required': ['order_id'], 'additionalProperties': False},
                         'output_schema': {'type': 'integer'}}]}
+                if args.bubblewrap:
+                    prefix = pathlib.Path(subprocess.check_output(
+                        [args.python, '-I', '-c', 'import sys; print(sys.prefix)'], text=True, timeout=30).strip())
+                    roots = [pathlib.Path('/usr'), pathlib.Path('/lib'), pathlib.Path('/lib64'),
+                             ROOT/'integrations/agent_sdk']
+                    if not any(prefix.is_relative_to(root) for root in roots):
+                        roots.append(prefix)
+                    transport = configuration['runtime']['transport']
+                    transport['type'] = 'isolated_stdio'
+                    transport['isolation'] = {'bubblewrap': args.bubblewrap,
+                        'read_only': [str(root) for root in roots], 'network': 'host'}
                 path = pathlib.Path(state)/'agent.json'
                 path.write_text(json.dumps(configuration))
                 result = subprocess.run([args.worker, '--config', str(path), '--task', 'start'],

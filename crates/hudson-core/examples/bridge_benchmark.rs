@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_response_bytes: 65536,
                 stream: args[0] == "stream",
                 images: false,
+                native_sessions: false,
             },
             32,
         )?),

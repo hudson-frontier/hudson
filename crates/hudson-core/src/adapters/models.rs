@@ -3,16 +3,47 @@ use hudson_harness::{ModelRequest, ModelResponse};
 
 /// Host-owned correlation for one admitted attempt. Never a credential or a
 /// capability grant; adapters return it unchanged when reporting native state.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ModelCallContext {
     pub run_id: uuid::Uuid,
     pub operation_id: uuid::Uuid,
     pub attempt_id: uuid::Uuid,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeCheckpoint {
+    pub run_id: uuid::Uuid,
+    pub operation_id: uuid::Uuid,
+    pub attempt_id: uuid::Uuid,
+    pub request_fingerprint: String,
+    pub input_messages: usize,
+}
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeHistoryMode {
+    Append,
+    Replace,
+}
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeCallContext {
+    pub call: ModelCallContext,
+    pub actor: crate::models::Actor,
+    pub previous: Option<RuntimeCheckpoint>,
+    pub history_mode: RuntimeHistoryMode,
+    pub request_fingerprint: String,
+}
+
 /// Provisional output belongs to the exact active attempt. Executors must obey
 /// backpressure and stop on errors; successful text is still verified normally.
 pub trait ModelObserver {
+    fn runtime_context(
+        &self,
+        _request: &ModelRequest,
+    ) -> Result<Option<RuntimeCallContext>, ExecutionError> {
+        Ok(None)
+    }
     fn context(&self) -> Option<ModelCallContext> {
         None
     }

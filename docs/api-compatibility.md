@@ -1,5 +1,13 @@
 # Preview HTTP compatibility
 
+The native SDK extension retains the HTTP revision and adds optional bridge
+context/receipt fields behind `native_sessions: true`. Rust `BridgeConfig`
+literals add `native_sessions: false`; `BridgeRequest` literals add
+`context: None`, and `BridgeResponse` literals add `checkpoint: None` for legacy
+behavior. Existing JSON defaults preserve stateless operation. Native peers
+must acknowledge the exact admitted checkpoint; unrequested or mismatched
+receipts fail closed. See [native SDK configuration and recovery](../integrations/agent_sdk/README.md).
+
 The `hudson-preview-2026-10-30-r3` revision adds actor-scoped allocation views and opt-in model-spend
 approval waits. Model operations can now use the existing approval wait type
 when configured thresholds require it. Monetary values are decimal strings;

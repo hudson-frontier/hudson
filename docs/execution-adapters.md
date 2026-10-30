@@ -4,6 +4,9 @@ The bundled [native CLI peer](../integrations/codex/README.md) adds installed
 Codex app-server execution and native rollout continuation. See the
 [conformance matrix](runtime-conformance.md) for installed-runtime evidence and
 limits alongside the SDK and generic bridge.
+The optional [Claude Agent SDK peer](../integrations/claude/README.md) adds an
+installed Claude runtime with one guarded Anthropic Messages request per admitted
+attempt, native tool deferral and actor-owned immutable transcript receipts.
 
 Hudson's common agent loop can use an operator-owned SDK bridge instead of a
 built-in model transport. HTTP and contained stdio bridges exchange portable model

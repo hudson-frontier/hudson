@@ -30,3 +30,12 @@ redistribute its binaries or source. The native peer and gateway use Python's
 standard library and first-party private checkpoint helpers; the SDK packages
 are not required for this peer. Preserve the installed CLI package's license and
 third-party notices.
+
+## Claude Agent SDK integration
+
+The optional operator-installed Claude Agent SDK 0.2.175 and MCP Python package
+2.3.0 are MIT-licensed. The SDK wheel includes Claude Code 2.1.314, which retains
+Anthropic's own license/terms and bundled notices. Hudson does not redistribute
+that executable, the SDK source or their dependencies. Install them separately
+and preserve their package metadata and terms. The first-party peer, child
+driver and typed Messages gateway remain Apache-2.0.

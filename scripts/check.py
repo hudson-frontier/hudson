@@ -37,6 +37,7 @@ def main():
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_operator_cli.py', '-v')
     run(sys.executable, 'scripts/check_api_compatibility.py')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'integrations/python', '-v')
+    run(sys.executable, '-I', '-m', 'unittest', 'discover', '-s', 'integrations/claude', '-v')
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'examples/project-files', '-v')
     test = ['cargo', 'test', '--locked', '--workspace', '--all-features', '--exclude', 'hudson-temporal']
     if args.database:

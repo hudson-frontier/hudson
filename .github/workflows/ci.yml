@@ -54,6 +54,31 @@ jobs:
           HUDSON_WORKER: ${{ github.workspace }}/target/debug/hudson-worker
         run: python -m unittest discover -s integrations/harbor/tests -v
 
+  native_sdk:
+    name: Native SDK conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned native SDK
+        run: python -m pip install -r integrations/agent_sdk/requirements.txt
+      - name: Build the real worker
+        env:
+          RUSTUP_HOME: ${{ runner.temp }}/hudson-native-rustup
+        run: cargo build --locked -p hudson-worker
+      - name: Check private native checkpoints
+        run: python -I -m unittest discover -s integrations/agent_sdk -v
+      - name: Exercise real SDK and worker against local fixtures
+        run: python -I scripts/smoke_native_sdk.py --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker"
+
   integration:
     name: Rust, PostgreSQL, and Temporal
     runs-on: ubuntu-24.04
@@ -107,7 +132,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [repository, harbor, integration]
+    needs: [repository, harbor, native_sdk, integration]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

@@ -102,6 +102,74 @@ impl ModelObserver for CollectedText {
         Ok(())
     }
 }
+
+#[test]
+fn native_sessions_require_admission_and_reject_stale_checkpoint_receipts() {
+    use hudson_core::adapters::models::{
+        ModelCallContext, RuntimeCallContext, RuntimeCheckpoint, RuntimeHistoryMode,
+    };
+    let mut settings = config("http://127.0.0.1:1/model".into());
+    settings.native_sessions = true;
+    let mut model = BridgeModel::new(settings, 16).unwrap();
+    assert!(matches!(
+        model.call(&request()),
+        Err(ExecutionError::Failed(_))
+    ));
+    struct Observer(RuntimeCallContext);
+    impl ModelObserver for Observer {
+        fn runtime_context(
+            &self,
+            _: &ModelRequest,
+        ) -> Result<Option<RuntimeCallContext>, ExecutionError> {
+            Ok(Some(self.0.clone()))
+        }
+        fn cancelled(&self) -> bool {
+            false
+        }
+        fn text_delta(&mut self, _: &str) -> Result<(), ExecutionError> {
+            Ok(())
+        }
+    }
+    let call = ModelCallContext {
+        run_id: uuid::Uuid::new_v4(),
+        operation_id: uuid::Uuid::new_v4(),
+        attempt_id: uuid::Uuid::new_v4(),
+    };
+    let context = RuntimeCallContext {
+        call,
+        actor: Actor {
+            workspace_id: "fixture".into(),
+            id: "owner".into(),
+        },
+        previous: None,
+        history_mode: RuntimeHistoryMode::Replace,
+        request_fingerprint: "expected".into(),
+    };
+    let mut response = reply(json!({"type":"final","output":42}));
+    response["checkpoint"] = serde_json::to_value(RuntimeCheckpoint {
+        run_id: call.run_id,
+        operation_id: call.operation_id,
+        attempt_id: call.attempt_id,
+        request_fingerprint: "stale".into(),
+        input_messages: 0,
+    })
+    .unwrap();
+    let (endpoint, requests, peer) = serve(vec![response]);
+    let mut settings = config(endpoint);
+    settings.native_sessions = true;
+    let mut model = BridgeModel::new(settings, 16).unwrap();
+    assert!(matches!(
+        model.call_observed(&request(), &mut Observer(context)),
+        Err(ExecutionError::Failed(_))
+    ));
+    assert_eq!(model.take_usage().unwrap().input_tokens, 10);
+    assert!(model.take_usage().is_none());
+    peer.join().unwrap();
+    assert_eq!(
+        requests.lock().unwrap()[0]["context"]["call"]["attempt_id"],
+        json!(call.attempt_id)
+    );
+}
 fn stream_peer(frames: Vec<Value>) -> (String, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/", listener.local_addr().unwrap());

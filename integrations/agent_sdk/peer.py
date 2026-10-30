@@ -141,6 +141,7 @@ def input_items(messages, append=False):
                 items.extend(metadata.get('sdk_input_prefix', []))
                 items.append({'type': 'function_call', 'call_id': call['call_id'],
                               'name': call['name'], 'arguments': encode(call['arguments'], REQUEST_BYTES).decode()})
+                items.extend(metadata.get('sdk_input_suffix', []))
             elif kind == 'tool_result' and role == 'tool':
                 result = block['result']
                 items.append({'type': 'function_call_output', 'call_id': result['call_id'],
@@ -161,7 +162,9 @@ class NativeSession:
         self.items = list(items)
 
     async def get_items(self, limit=None):
-        return list(self.items if limit is None else self.items[-limit:])
+        if limit is not None and (type(limit) is not int or limit < 0):
+            raise ValueError('invalid native item limit')
+        return list(self.items if limit is None else self.items[-limit:] if limit else [])
 
     async def add_items(self, items):
         if len(self.items) + len(items) > MAX_ITEMS:
@@ -291,6 +294,29 @@ async def run_sdk(body, saved, emit):
                     name, call_id, arguments = raw.name, raw.call_id, raw.arguments
                 calls.append({'name': name, 'call_id': call_id, 'arguments': decode(arguments)})
             if calls:
+                # Provider-native continuation stays opaque in the host's tool
+                # metadata, never in function arguments or portable exports.
+                by_id = {call['call_id']: call for call in calls}
+                prefix = []
+                visible = []
+                last = None
+                for raw in result.raw_responses[-1].output:
+                    value = raw.model_dump(mode='json') if hasattr(raw, 'model_dump') else raw
+                    call_id = value.get('call_id')
+                    if value.get('type') == 'function_call' and call_id in by_id:
+                        last = by_id[call_id]
+                        if prefix:
+                            last['provider_metadata'] = {'sdk_input_prefix': prefix}
+                        prefix = []
+                    else:
+                        prefix.append(value)
+                        if value.get('type') == 'message':
+                            visible.extend(block['text'] for block in value.get('content', [])
+                                           if block.get('type') == 'output_text')
+                if prefix and last is not None:
+                    last.setdefault('provider_metadata', {})['sdk_input_suffix'] = prefix
+                if visible:
+                    calls[0].setdefault('provider_metadata', {})['chat_assistant_text'] = ''.join(visible)
                 response = {'type': 'tool_calls', 'calls': calls}
             else:
                 output = result.final_output

@@ -286,6 +286,78 @@ fn postgres_reopen_preserves_unknown_allocations_and_reconciliation() {
         Store::postgres_local("/tmp", &database, &namespace).unwrap(),
         || Store::postgres_local("/tmp", &database, &namespace).unwrap(),
     );
+    let mut client = postgres::Config::new()
+        .host("/tmp")
+        .dbname(&database)
+        .connect(postgres::NoTls)
+        .unwrap();
+    let version: i32 = client
+        .query_one(
+            "SELECT schema_version FROM hudson_state WHERE namespace=$1",
+            &[&namespace],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        version, 4,
+        "legacy writers must reject spend-enabled namespaces"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn local_snapshot_reopens_spend_state_and_keeps_its_version_after_writes() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = dir.path().join("state.json");
+    let actor = fixtures::actor();
+    let run = {
+        let store = Store::local_file(&path).unwrap();
+        install(&store, &policy(100, None));
+        let mut runtime = runtime(store, model(None, true, vec![]));
+        let id = submit(&runtime, &actor);
+        fixtures::drive(&mut runtime, &actor, id).unwrap();
+        id
+    };
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(value["schema_version"], 2);
+    let store = Store::local_file(&path).unwrap();
+    assert_eq!(
+        store.run_spend(&actor, run).unwrap().entries[0].status,
+        SpendStatus::Unknown
+    );
+    store
+        .set_policy("demo", "unrelated", Policy::default())
+        .unwrap();
+    drop(store);
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(value["schema_version"], 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_empty_upgraded_local_snapshot_never_downgrades_its_envelope() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = dir.path().join("empty.json");
+    {
+        let store = Store::local_file(&path).unwrap();
+        store
+            .set_policy("demo", "initial", Policy::default())
+            .unwrap();
+    }
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    value["schema_version"] = json!(2);
+    std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    {
+        let store = Store::local_file(&path).unwrap();
+        store.set_policy("demo", "next", Policy::default()).unwrap();
+    }
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(value["schema_version"], 2);
 }
 #[test]
 fn overrun_freezes_allocation_scopes_without_dispatching_returned_tools() {

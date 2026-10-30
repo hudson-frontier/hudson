@@ -114,7 +114,7 @@ pub struct SpendEntry {
     pub status: SpendStatus,
     pub attempt_id: Option<Uuid>,
     pub overrun: bool,
-    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub required_approvers: BTreeSet<String>,
     #[serde(default)]
     pub(crate) accounts: Vec<String>,

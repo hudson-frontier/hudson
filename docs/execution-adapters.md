@@ -221,12 +221,14 @@ cargo build --locked -p hudson-core --example bridge_benchmark
 python3 scripts/bench_runtime_bridge.py
 ```
 
-All three modes run 100 sequential loopback requests with 1 KiB of text, a 32-token cap,
+The three text modes run 100 sequential loopback requests with 1 KiB of text, a 32-token cap,
 the same constant answer, and persistent HTTP connections. The output reports p50,
 p95 and total microseconds separately for the existing transport and bridge.
 The streaming mode adds an identity frame, one two-byte text delta and a final
 response. This measures local adapter overhead, not provider quality or production
-throughput; it excludes durable journal writes.
+throughput; it excludes durable journal writes. The additional image mode runs
+25 calls with 2 MiB minus two synthetic decoded bytes and reports process peak
+RSS on Linux. See [image workload measurements](images.md#transport-measurement).
 
 See [dependency licensing](dependency-licensing.md) for the process and WebSocket
 components used by these integrations.

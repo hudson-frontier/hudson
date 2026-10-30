@@ -1,8 +1,10 @@
 """Compare bridge HTTP latency with the existing direct adapter, using local fixtures.
 
 Run after cargo build --locked -p hudson-core --example bridge_benchmark.
-No credentials, external endpoints or paid requests. Each mode executes 100
-sequential calls with the same 1 KiB text, 32-token cap and constant result.
+No credentials, external endpoints or paid requests. Text modes execute 100
+sequential calls with 1 KiB text, a 32-token cap and constant result. Image mode
+executes 25 calls adding 2 MiB minus two synthetic decoded bytes. Those bytes
+exercise transport/allocation behavior; this is not a vision acceptance test.
 """
 import http.server
 import json

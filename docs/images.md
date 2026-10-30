@@ -73,3 +73,24 @@ run = client.start_images('Describe this image', [image], request_key='photo-onc
 Rust callers use `Runtime::submit_images` with `ImageTurn`, and
 `import_turn_with_images` when transferring a conversation. Source-breaking enum
 and configuration changes are listed in the preview compatibility guide.
+
+## Transport measurement
+
+Run `cargo build --locked -p hudson-core --example bridge_benchmark` followed by
+`python3 scripts/bench_runtime_bridge.py`. The image mode performs 25 sequential
+loopback calls with 2097150 synthetic decoded bytes, 1 KiB text, a 32-token cap
+and constant output. It does not parse an actual image or call a vision provider.
+
+The same fixture and benchmark driver compared the initial encoder (`919dc49`)
+with ownership transfers between JSON containers (`f804a50`):
+
+| Encoder | p50 | p95 | Peak process RSS |
+| --- | --- | --- | --- |
+| Initial image encoder | 178.371 ms | 211.788 ms | 26588 KiB |
+| JSON containers moved by ownership | 180.439 ms | 204.947 ms | 27412 KiB |
+
+These measurements establish no latency or peak-memory improvement within run
+variation. The implementation avoids repeated intermediate JSON-container copies;
+base64 validation and transport serialization remain linear in encoded bytes.
+Memory remains explicitly bounded by attachment, request and concurrency ceilings.
+No production throughput, billing or model-quality claim follows from this test.

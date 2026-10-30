@@ -128,7 +128,7 @@ fn soft_threshold_requests_model_approval_before_io_and_prices_reports_once() {
         panic!("expected priced model approval");
     };
     assert_eq!(
-        store.operation_view(&actor, operation_id).unwrap().kind,
+        store.inspect_operation(&actor, operation_id).unwrap().kind,
         "model"
     );
     let before = store.run_spend(&actor, id).unwrap();

@@ -143,7 +143,12 @@ and close after 300 seconds. There are at most 32 combined connections per host.
 Read pages hold at most 32 events and 128 KiB of encoded events, except that a
 single larger event is delivered alone. Database reads have a five-second wait
 bound and a separate 32-reader ceiling that remains held until a blocked query
-actually finishes. Socket writes have a five-second deadline. A disconnected
+actually finishes. The server's TCP wrapper enforces a five-second idle write
+deadline and a 300-second connection lifetime, including upgraded WebSockets and
+SSE clients that stop polling their response bodies. Socket reads have a
+60-second idle deadline. Keep-alive clients reconnect when the connection lease
+ends; embedding the Router in another HTTP host requires equivalent IO bounds.
+A disconnected
 observer changes no run state; reconnect explicitly from the last processed
 sequence. The Python caller exposes `stream_events()` with byte, duration and
 event bounds; it never reconnects automatically.

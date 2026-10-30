@@ -87,11 +87,26 @@ class Checkpoints:
         return True
 
     def begin(self, call):
-        name = checkpoint_name(call) + '.pending'
-        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=self.directory)
-        os.close(fd)
-        os.fsync(self.directory)
+        import fcntl
+        # Independent peer processes must reserve capacity atomically. The lock
+        # covers only directory admission and its durable marker, never model IO.
+        lock = os.open('.admission.lock', os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW,
+                       0o600, dir_fd=self.directory)
+        try:
+            metadata = os.fstat(lock)
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or
+                    metadata.st_nlink != 1 or stat.S_IMODE(metadata.st_mode) & 0o077):
+                raise ValueError('invalid checkpoint admission lock')
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if not self.has_capacity():
+                raise ValueError('native checkpoint capacity')
+            name = checkpoint_name(call) + '.pending'
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=self.directory)
+            os.close(fd)
+            os.fsync(self.directory)
+        finally:
+            os.close(lock)
 
     def completed(self, call):
         os.unlink(checkpoint_name(call) + '.pending', dir_fd=self.directory)
@@ -373,8 +388,6 @@ def main():
                 sys.stdout.buffer.flush()
                 return
         else:
-            if not checkpoints.has_capacity():
-                raise ValueError('native checkpoint capacity')
             # A crashed/ambiguous attempt keeps its pending marker. Reusing it
             # cannot start another paid request merely because a process died.
             checkpoints.begin(context['call'])

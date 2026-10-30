@@ -1,10 +1,12 @@
 """Standard-library state/protocol regressions; SDK execution is tested separately."""
 import asyncio
+import concurrent.futures
 import importlib.util
 import json
 import os
 import pathlib
 import tempfile
+import threading
 import unittest
 import uuid
 from unittest.mock import patch
@@ -21,6 +23,26 @@ def context(actor='owner'):
 
 @unittest.skipUnless(os.name == 'posix', 'private Unix checkpoint files')
 class StateTests(unittest.TestCase):
+    def test_concurrent_attempts_reserve_one_remaining_slot_atomically(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'HUDSON_SDK_STATE_DIR': directory}), patch.object(peer, 'MAX_SNAPSHOTS', 1):
+            barrier = threading.Barrier(2)
+            def admit(_):
+                owner = context()
+                store = peer.Checkpoints(owner)
+                try:
+                    # Both callers observe capacity before racing admission.
+                    self.assertTrue(store.has_capacity())
+                    barrier.wait(timeout=5)
+                    try:
+                        store.begin(owner['call'])
+                        return True
+                    except ValueError:
+                        return False
+                finally:
+                    store.close()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                self.assertEqual(sum(pool.map(admit, range(2))), 1)
+
     def test_checkpoint_publication_is_immutable_and_actor_scoped(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'HUDSON_SDK_STATE_DIR': directory}):
             owner = context()

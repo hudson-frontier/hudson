@@ -34,7 +34,10 @@ provider request. Process death does not authorize retry.
 
 Snapshots use private Unix files, reject symlinks and are separated by actor and
 workspace. Each actor directory holds at most 256 snapshot/pending records;
-snapshots are capped at 8 MiB and 8192 native items. Interrupted pending markers
+snapshots are capped at 8 MiB and 8192 native items. An actor-local file lock makes
+capacity admission atomic across peer processes and is released before provider
+IO. Immutable publication briefly retains its pending marker and temporary file.
+Interrupted pending markers
 require explicit operator reconciliation. Preserve snapshots needed for resume
 or forks. Windows hosts can use a Unix peer over an authenticated bridge; the
 bundled filesystem peer requires Unix ownership guarantees.

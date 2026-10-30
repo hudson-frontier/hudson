@@ -54,8 +54,8 @@ def private_directory(path):
 
 
 class Checkpoints:
-    def __init__(self, context):
-        root = private_directory(pathlib.Path(os.environ['HUDSON_SDK_STATE_DIR']))
+    def __init__(self, context, root_env='HUDSON_SDK_STATE_DIR'):
+        root = private_directory(pathlib.Path(os.environ[root_env]))
         owner = hashlib.sha256(encode(context['actor'], 2048)).hexdigest()
         self.path = private_directory(root / owner)
         self.directory = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

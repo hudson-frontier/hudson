@@ -85,6 +85,41 @@ jobs:
       - name: Exercise real SDK and worker against local fixtures
         run: python -I scripts/smoke_native_sdk.py --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap
 
+  native_codex:
+    name: Native CLI conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned native executable
+        run: npm install --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/hudson-codex" @openai/codex@0.165.0
+      - name: Install namespace isolation dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor-profiles
+      - name: Check kernel namespace availability
+        run: bash .github/scripts/check-namespace.sh
+      - name: Build the real worker
+        env:
+          RUSTUP_HOME: ${{ runner.temp }}/hudson-cli-rustup
+        run: cargo build --locked -p hudson-worker
+      - name: Check RPC, provider admission and native files
+        run: |
+          python -I -m unittest discover -s integrations/codex -v
+          python -I -m unittest discover -s integrations/agent_sdk -v
+      - name: Exercise real CLI and worker inside isolation
+        run: |
+          native="$(python -c 'import os,pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"])/"hudson-codex/node_modules"; found=list(root.glob("**/vendor/x86_64-unknown-linux-musl/bin/codex")); assert len(found)==1; print(found[0])')"
+          python -I scripts/smoke_native_codex.py --codex "$native" --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap
+
   integration:
     name: Rust, PostgreSQL, and Temporal
     runs-on: ubuntu-24.04
@@ -140,7 +175,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [repository, harbor, native_sdk, integration]
+    needs: [repository, harbor, native_sdk, native_codex, integration]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

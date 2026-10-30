@@ -48,6 +48,7 @@ pub mod experiments;
 pub mod context;
 pub mod inbox;
 pub mod memory;
+mod model_events;
 
 pub mod coordination;
 

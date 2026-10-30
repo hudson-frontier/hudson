@@ -23,6 +23,8 @@ can be loaded at startup or published through authenticated catalog mode. Creden
 | `GET /runs/{id}/schedule` | Inspect durable scheduling publication evidence, without executing work |
 | `GET /runs/{id}/children` | Discover direct children and their statuses |
 | `GET /runs/{id}/events?after=0&limit=100` | Poll a bounded event page after an exclusive sequence cursor |
+| `GET /runs/{id}/events/stream` | Observe SSE events; resume using `Last-Event-ID` |
+| `GET /runs/{id}/events/ws` | Observe journal events over a WebSocket |
 | `POST /runs/{id}/resume` | Schedule continuation with the configured executor |
 | `POST /runs/{id}/input` | Record an answer for `question_id` and schedule continuation |
 | `POST /runs/{id}/cancel` | Request cancellation of the run and known children |
@@ -57,6 +59,15 @@ that more events exist. Even an empty page checks run ownership. These limits
 bound event counts, not payload bytes; arbitrary JSON payloads may still be large.
 The PostgreSQL backend still reads its namespace JSONB snapshot; paging avoids
 cloning and serializing the entire remaining history but does not change storage.
+
+SSE and WebSocket delivery use the same journal and exclusive sequence cursors.
+Each connection has a 300-second lease and shares a 32-connection host ceiling.
+Bearer expiry or revocation closes observation. Reconnect explicitly with the
+last fully processed sequence; disconnecting does not cancel execution. Partial
+`model_output_delta` events are provisional and belong to a specific attempt.
+Only the final run result has passed normal verification. See the
+[execution adapter guide](execution-adapters.md#provisional-text-streaming) for
+frame formats, resource bounds and transport behavior.
 
 The body limit is 64 KiB. Runtime errors use `{"error":"..."}`; malformed JSON,
 UUIDs, content types, and oversized bodies can receive plain-text framework

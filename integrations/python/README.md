@@ -41,6 +41,14 @@ appropriate. Question identity comes from `wait.question_id`. `resume` and
 `cancel` are explicit controls. Closing the observation generator never cancels
 or resumes the run.
 
+`stream_events(run_id, after=cursor)` observes one SSE connection and yields the
+original event objects. Save each event's `sequence` only after processing it.
+The generator closes after 10000 events, 300 seconds, the configured response
+byte ceiling, or server EOF. These bounds can be lowered with `max_events`,
+`max_seconds` and `max_response_bytes`. Socket idle timeout still applies.
+Reconnect explicitly with the last saved cursor. Partial `model_output_delta`
+events are provisional; inspect `run(run_id)` for the verified final result.
+
 `queue_message(run_id, value, kind='steer', request_key='direction-1')` adds user
 direction at the next complete boundary. Use `kind='follow_up'` to wait for a
 verified answer first. `queued_messages` inspects pending input and

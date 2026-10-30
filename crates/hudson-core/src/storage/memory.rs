@@ -100,6 +100,10 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
+    /// Scoped status inspection without copying the public run payload.
+    pub fn run_status(&self, actor: &Actor, id: Uuid) -> Result<RunStatus> {
+        self.read(|data| Ok(data.run(actor, id)?.status))
+    }
     pub(crate) fn staging(data: Data) -> Self {
         Self {
             data: Arc::new(Mutex::new(data)),
@@ -219,6 +223,43 @@ impl MemoryStore {
             let events = d.events.get(&id).map(Vec::as_slice).unwrap_or_default();
             let start = events.partition_point(|event| event.sequence <= after);
             Ok(events[start..].iter().take(limit).cloned().collect())
+        })
+    }
+
+    /// Bound cloned journal pages by serialized bytes as well as event count.
+    /// A single event larger than the page ceiling is returned alone, allowing
+    /// a cursor to progress without retaining a batch of maximum-size payloads.
+    pub fn event_stream_page(&self, actor: &Actor, id: Uuid, after: u64) -> Result<Vec<Event>> {
+        const PAGE_BYTES: usize = 128 * 1024;
+        struct Counter(usize);
+        impl std::io::Write for Counter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0 = self.0.saturating_add(bytes.len());
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        self.read(|d| {
+            d.run(actor, id)?;
+            let events = d.events.get(&id).map(Vec::as_slice).unwrap_or_default();
+            let start = events.partition_point(|event| event.sequence <= after);
+            let mut page = Vec::new();
+            let mut total = 0;
+            for event in events[start..].iter().take(32) {
+                let mut size = Counter(0);
+                serde_json::to_writer(&mut size, event)?;
+                if !page.is_empty() && size.0 > PAGE_BYTES - total {
+                    break;
+                }
+                page.push(event.clone());
+                total += size.0;
+                if total >= PAGE_BYTES {
+                    break;
+                }
+            }
+            Ok(page)
         })
     }
 }

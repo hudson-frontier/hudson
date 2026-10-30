@@ -25,6 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use uuid::Uuid;
+mod event_stream;
 
 struct NoModel(Option<hudson_core::budgets::ModelBudgetBinding>);
 impl ModelExecutor for NoModel {
@@ -72,6 +73,8 @@ struct App {
     model_budget: Option<hudson_core::budgets::ModelBudgetBinding>,
     fixture: bool,
     schedule: Option<hudson_core::scheduling::ScheduleTarget>,
+    stream_slots: Arc<tokio::sync::Semaphore>,
+    stream_reads: Arc<tokio::sync::Semaphore>,
 }
 struct ApiError(Error);
 impl From<Error> for ApiError {
@@ -467,6 +470,8 @@ fn assemble(
         Driver::Demo(_) => Vec::new(),
     };
     let app = App {
+        stream_slots: Arc::new(tokio::sync::Semaphore::new(32)),
+        stream_reads: Arc::new(tokio::sync::Semaphore::new(32)),
         catalog,
         schedule,
         model_budget: model_budget.clone(),
@@ -528,6 +533,8 @@ fn assemble(
         .route("/runs", post(submit))
         .route("/runs/{id}", get(inspect))
         .route("/runs/{id}/events", get(events))
+        .route("/runs/{id}/events/stream", get(event_stream::sse))
+        .route("/runs/{id}/events/ws", get(event_stream::websocket))
         .route("/runs/{id}/schedule", get(inspect_schedule))
         .route("/runs/{id}/children", get(children))
         .route("/runs/{id}/resume", post(resume))

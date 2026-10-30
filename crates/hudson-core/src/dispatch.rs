@@ -165,16 +165,20 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         // The store lock is released before any external execution.
         let result = match &operation.request {
             OperationRequest::Model { request } => {
-                let store = &self.store;
-                self.model
-                    .call_controlled(request, &|| {
-                        store
-                            .read(|data| {
-                                let run = data.run(actor, run_id)?;
-                                Ok(run.status.terminal() || run.status == RunStatus::Cancelling)
-                            })
-                            .unwrap_or(true)
-                    })
+                let mut observer = crate::model_events::RunModelObserver::new(
+                    &self.store,
+                    actor,
+                    crate::adapters::models::ModelCallContext {
+                        run_id,
+                        operation_id: id,
+                        attempt_id,
+                    },
+                    limits.max_payload_bytes,
+                );
+                let result = self.model.call_observed(request, &mut observer);
+                observer
+                    .finish()
+                    .and(result)
                     .map(|response| OperationResult::Model { response })
             }
             OperationRequest::Tool { call, .. } => self

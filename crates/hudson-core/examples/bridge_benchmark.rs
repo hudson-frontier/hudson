@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut model: Box<dyn ModelExecutor> = match args[0].as_str() {
         "direct" => Box::new(ChatModel::new(&args[1], None, 32)?),
-        "bridge" => Box::new(BridgeModel::new(
+        "bridge" | "stream" => Box::new(BridgeModel::new(
             BridgeConfig {
                 id: "benchmark".into(),
                 version: 1,
@@ -34,10 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 timeout_seconds: 10,
                 max_request_bytes: 65536,
                 max_response_bytes: 65536,
+                stream: args[0] == "stream",
             },
             32,
         )?),
-        _ => return Err("mode must be direct or bridge".into()),
+        _ => return Err("mode must be direct, bridge or stream".into()),
     };
     let request = ModelRequest {
         instructions: "Return 42".into(),

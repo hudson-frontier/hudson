@@ -1,6 +1,7 @@
 mod auth;
 mod browser;
 mod config;
+mod http_io;
 mod routes;
 
 use clap::Parser;
@@ -87,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "single user, no authentication"
                 }
             );
-            axum::serve(listener, router)
+            axum::serve(http_io::DeadlineListener(listener), router)
                 .with_graceful_shutdown(async {
                     let _ = tokio::signal::ctrl_c().await;
                 })

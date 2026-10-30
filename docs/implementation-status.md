@@ -1,5 +1,13 @@
 # Implementation audit
 
+The execution-runtime extension now has optional bridge text streaming, an
+attempt-fenced provisional-output journal, SSE/WebSocket observation and Windows
+Job Object cleanup. Protocol fixtures and native Windows descendant-cleanup
+tests cover these paths; they do not establish vendor runtime parity. Native
+SDK adapters/sessions, multimodal input, compaction, currency admission and
+filesystem/network isolation remain tracked in issue #91. See
+[execution adapters](execution-adapters.md) for current limits.
+
 The local preview Python client and explicit HTTP contract baseline are documented
 in [api-compatibility.md](api-compatibility.md). Protocol regressions cover transport
 bounds, credential-safe errors, event paging and waits. The opt-in local

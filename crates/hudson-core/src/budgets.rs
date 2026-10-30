@@ -95,6 +95,25 @@ impl<M> BudgetedModel<M> {
                 .ok_or(Error::NotFound)
         })
     }
+    fn reserve_call(&self) -> std::result::Result<(), crate::adapters::tools::ExecutionError> {
+        self.store
+            .transact(|d| {
+                let budget = d
+                    .model_budgets
+                    .get_mut(&(self.workspace.clone(), self.group.clone()))
+                    .ok_or(Error::NotFound)?;
+                if budget.admitted >= budget.limit {
+                    return Err(Error::Invalid("shared model call budget exhausted".into()));
+                }
+                budget.admitted += 1;
+                Ok(())
+            })
+            .map_err(|_| {
+                crate::adapters::tools::ExecutionError::Failed(
+                    "shared model budget exhausted or unavailable".into(),
+                )
+            })
+    }
 }
 impl<M: crate::adapters::models::ModelExecutor> crate::adapters::models::ModelExecutor
     for BudgetedModel<M>
@@ -107,6 +126,21 @@ impl<M: crate::adapters::models::ModelExecutor> crate::adapters::models::ModelEx
     }
     fn take_usage(&mut self) -> Option<crate::models::TokenUsage> {
         self.inner.take_usage()
+    }
+    fn call_observed(
+        &mut self,
+        request: &hudson_harness::ModelRequest,
+        observer: &mut dyn crate::adapters::models::ModelObserver,
+    ) -> std::result::Result<hudson_harness::ModelResponse, crate::adapters::tools::ExecutionError>
+    {
+        self.inner.take_usage();
+        if observer.cancelled() {
+            return Err(crate::adapters::tools::ExecutionError::Failed(
+                "model call cancelled before admission".into(),
+            ));
+        }
+        self.reserve_call()?;
+        self.inner.call_observed(request, observer)
     }
     fn call(
         &mut self,
@@ -127,23 +161,7 @@ impl<M: crate::adapters::models::ModelExecutor> crate::adapters::models::ModelEx
                 "model call cancelled before admission".into(),
             ));
         }
-        self.store
-            .transact(|d| {
-                let budget = d
-                    .model_budgets
-                    .get_mut(&(self.workspace.clone(), self.group.clone()))
-                    .ok_or(Error::NotFound)?;
-                if budget.admitted >= budget.limit {
-                    return Err(Error::Invalid("shared model call budget exhausted".into()));
-                }
-                budget.admitted += 1;
-                Ok(())
-            })
-            .map_err(|_| {
-                crate::adapters::tools::ExecutionError::Failed(
-                    "shared model budget exhausted or unavailable".into(),
-                )
-            })?;
+        self.reserve_call()?;
         // Charge admission, even if the provider fails: an uncertain request may
         // have consumed tokens. Never refund automatically or reset on restart.
         self.inner.call_controlled(request, cancelled)

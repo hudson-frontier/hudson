@@ -1,5 +1,9 @@
 use hudson_core::{
-    adapters::{models::ModelExecutor, runtime_bridge::*, tools::ExecutionError},
+    adapters::{
+        models::{ModelExecutor, ModelObserver},
+        runtime_bridge::*,
+        tools::ExecutionError,
+    },
     configured::Configuration,
     models::*,
     storage::Store,
@@ -83,6 +87,91 @@ fn serve(replies: Vec<Value>) -> (String, Arc<Mutex<Vec<Value>>>, std::thread::J
         }
     });
     (endpoint, requests, thread)
+}
+
+#[derive(Default)]
+struct CollectedText {
+    text: String,
+}
+impl ModelObserver for CollectedText {
+    fn cancelled(&self) -> bool {
+        false
+    }
+    fn text_delta(&mut self, text: &str) -> Result<(), ExecutionError> {
+        self.text.push_str(text);
+        Ok(())
+    }
+}
+fn stream_peer(frames: Vec<Value>) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+    let peer = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket.set_nodelay(true).unwrap();
+        let request = read_request(&mut socket);
+        assert_eq!(request["stream"], true);
+        let data = frames
+            .iter()
+            .map(|v| format!("{v}\r\n"))
+            .collect::<String>();
+        if write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",data.len()).is_err(){return;}
+        // Fragment records across UTF-8 and JSON boundaries.
+        for chunk in data.as_bytes().chunks(7) {
+            if socket.write_all(chunk).is_err() {
+                return;
+            }
+        }
+    });
+    (endpoint, peer)
+}
+#[test]
+fn streaming_bridge_delivers_fragments_and_preserves_unicode_and_final_usage() {
+    let (endpoint, peer) = stream_peer(vec![
+        json!({"type":"start","protocol_version":1,"runtime_id":"fixture","runtime_version":1}),
+        json!({"type":"text_delta","text":"hé\u{2028}🌍"}),
+        json!({"type":"text_delta","text":"42"}),
+        json!({"type":"response","result":reply(json!({"type":"final","output":42}))}),
+    ]);
+    let mut settings = config(endpoint);
+    settings.stream = true;
+    assert!(settings.descriptor().capabilities.streaming);
+    let mut model = BridgeModel::new(settings, 32).unwrap();
+    let mut observer = CollectedText::default();
+    assert_eq!(
+        model.call_observed(&request(), &mut observer).unwrap(),
+        ModelResponse::Final { output: json!(42) }
+    );
+    assert_eq!(observer.text, "hé\u{2028}🌍42");
+    assert_eq!(model.take_usage().unwrap().input_tokens, 10);
+    peer.join().unwrap();
+}
+#[test]
+fn streaming_bridge_rejects_wrong_identity_truncation_and_frames_after_final() {
+    let start =
+        json!({"type":"start","protocol_version":1,"runtime_id":"fixture","runtime_version":1});
+    let final_frame =
+        json!({"type":"response","result":reply(json!({"type":"final","output":42}))});
+    for frames in [
+        vec![
+            json!({"type":"start","protocol_version":1,"runtime_id":"other","runtime_version":1}),
+            final_frame.clone(),
+        ],
+        vec![start.clone(), json!({"type":"text_delta","text":"partial"})],
+        vec![
+            start,
+            final_frame,
+            json!({"type":"text_delta","text":"late"}),
+        ],
+    ] {
+        let (endpoint, peer) = stream_peer(frames);
+        let mut settings = config(endpoint);
+        settings.stream = true;
+        let mut model = BridgeModel::new(settings, 32).unwrap();
+        let mut observer = CollectedText::default();
+        assert!(model.call_observed(&request(), &mut observer).is_err());
+        assert!(model.take_usage().is_none());
+        peer.join().unwrap();
+    }
 }
 
 #[test]
@@ -452,4 +541,77 @@ fn runtime_cancellation_reaches_a_budgeted_external_process() {
     assert_eq!(view.usage.model_calls, 1);
     assert!(start.elapsed() < Duration::from_secs(5));
     assert_eq!(store.operations(&actor, id).unwrap().len(), 1);
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "invoked as the isolated child of the Windows containment regression"]
+fn windows_containment_child() {
+    let Ok(mode) = std::env::var("HUDSON_CONTAINMENT_TEST_MODE") else {
+        return;
+    };
+    if mode == "parent" {
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "windows_containment_child",
+                "--nocapture",
+            ])
+            .env("HUDSON_CONTAINMENT_TEST_MODE", "child")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::fs::write(
+            std::env::var("HUDSON_CONTAINMENT_TEST_MARKER").unwrap(),
+            child.id().to_string(),
+        )
+        .unwrap();
+    }
+    std::thread::sleep(Duration::from_secs(30));
+}
+#[cfg(windows)]
+#[test]
+fn windows_deadline_terminates_descendants_in_the_assigned_job() {
+    use std::os::windows::process::CommandExt;
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("descendant");
+    std::env::set_var("HUDSON_CONTAINMENT_TEST_MODE", "parent");
+    std::env::set_var("HUDSON_CONTAINMENT_TEST_MARKER", &marker);
+    let settings:BridgeConfig=serde_json::from_value(json!({"id":"fixture","version":1,"timeout_seconds":1,
+        "transport":{"type":"stdio","executable":std::env::current_exe().unwrap(),
+        "args":["--ignored","--exact","windows_containment_child","--nocapture"],"cwd":directory.path(),
+        "env":["HUDSON_CONTAINMENT_TEST_MODE","HUDSON_CONTAINMENT_TEST_MARKER"]}})).unwrap();
+    let mut model = BridgeModel::new(settings, 16).unwrap();
+    std::env::remove_var("HUDSON_CONTAINMENT_TEST_MODE");
+    std::env::remove_var("HUDSON_CONTAINMENT_TEST_MARKER");
+    assert!(matches!(
+        model.call(&request()),
+        Err(ExecutionError::Unknown(_))
+    ));
+    let pid = std::fs::read_to_string(marker).unwrap();
+    let started = std::time::Instant::now();
+    loop {
+        let output = std::process::Command::new("tasklist.exe")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .creation_flags(0x08000000)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&output.stdout);
+        let alive = text.lines().any(|line| {
+            line.split(',')
+                .nth(1)
+                .is_some_and(|value| value.trim_matches('"') == pid)
+        });
+        if !alive {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "contained descendant remained alive"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }

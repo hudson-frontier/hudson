@@ -6,7 +6,18 @@ independently of the release version. No stable `/v1` API or cross-version
 compatibility guarantee is declared. Use matching server/client revisions and
 run local acceptance before upgrading.
 
-The `hudson-preview-2026-10-17-r2` revision adds the actor-scoped
+The `hudson-preview-2026-10-30-r1` revision adds the optional SSE/WebSocket event
+routes and the `model_output_delta` event type. Clients with exhaustive
+event-type enums must accept this value before upgrading. Deltas contain
+`attempt_id`, `text` and `provisional: true`; partial text never replaces a
+verified final result. The default bridge wire format and existing HTTP routes
+keep their behavior. Rust callers constructing `BridgeConfig` or `BridgeRequest`
+as literals must add `stream: false` to retain nonstreaming behavior; old JSON
+configurations keep that default. `ModelExecutor::call_observed` has a default
+implementation so existing custom executors remain compatible. See
+[streaming limits and reconnect semantics](execution-adapters.md#provisional-text-streaming).
+
+The earlier `hudson-preview-2026-10-17-r2` revision adds the actor-scoped
 `/runs/{id}/messages` queue controls and the `input_queued`, `input_consumed`, and
 `input_queue_cleared` event types. Existing routes retain their request and
 response shapes. Clients with exhaustive event-type enums must accept these

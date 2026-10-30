@@ -17,6 +17,7 @@ pub enum EventType {
     OperationStarted,
     OperationSettled,
     OperationUnknown,
+    ModelOutputDelta,
     RunWaiting,
     RunResumed,
     CancellationRequested,

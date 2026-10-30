@@ -23,3 +23,10 @@ The event transport enables Axum's WebSocket support and uses `futures` 0.3
 the matching test client are MIT-licensed. These licenses are compatible with
 Hudson's distribution policy. Third-party components retain their own copyright
 and license metadata.
+## Native CLI integration
+
+The optional operator-installed Codex CLI 0.165.0 is Apache-2.0. Hudson does not
+redistribute its binaries or source. The native peer and gateway use Python's
+standard library and first-party private checkpoint helpers; the SDK packages
+are not required for this peer. Preserve the installed CLI package's license and
+third-party notices.

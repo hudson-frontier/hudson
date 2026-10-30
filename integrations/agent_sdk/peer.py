@@ -90,7 +90,7 @@ class Checkpoints:
         import fcntl
         # Independent peer processes must reserve capacity atomically. The lock
         # covers only directory admission and its durable marker, never model IO.
-        lock = os.open('.admission.lock', os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW,
+        lock = os.open('.admission.lock', os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
                        0o600, dir_fd=self.directory)
         try:
             metadata = os.fstat(lock)

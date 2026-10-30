@@ -76,6 +76,9 @@ class StateTests(unittest.TestCase):
                 (store.path / peer.checkpoint_name(owner['call'])).symlink_to(target)
                 with self.assertRaises(OSError):
                     store.read(owner['call'])
+                (store.path / '.admission.lock').symlink_to(target)
+                with self.assertRaises(OSError):
+                    store.begin(owner['call'])
                 with self.assertRaises(ValueError):
                     peer.encode({'value': 'x' * 1000}, 128)
             finally:

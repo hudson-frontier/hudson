@@ -348,7 +348,8 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 None,
                 EventType::RunCreated,
                 Some(actor.id.clone()),
-                if let Some(transcript)=&transcript {json!({"imported_history":true,"transcript_digest":definitions::digest(transcript)?,"source_run":source_run})} else {json!({})},
+                if let Some(transcript)=&transcript {json!({"imported_history":true,"transcript_digest":definitions::digest(transcript)?,"source_run":source_run})}
+                else if let Some(previous)=previous {json!({"source_run":previous,"conversation_continuation":true})} else {json!({})},
             );
             Ok(id)
         })

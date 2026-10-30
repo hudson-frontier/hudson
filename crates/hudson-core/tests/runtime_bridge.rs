@@ -37,6 +37,36 @@ fn config(endpoint: String) -> BridgeConfig {
     )
     .unwrap()
 }
+
+#[test]
+fn explicit_reasoning_requires_an_exact_receipt_and_preserves_usage_and_output_cap() {
+    use hudson_core::adapters::reasoning::Effort;
+    for received in [None, Some(Effort::High), Some(Effort::Low)] {
+        let mut response = reply(json!({"type":"final","output":42}));
+        if let Some(effort) = received {
+            response["reasoning_effort"] = json!(effort);
+        }
+        let (endpoint, requests, peer) = serve(vec![response]);
+        let mut settings = config(endpoint);
+        assert!(serde_json::to_value(&settings)
+            .unwrap()
+            .get("reasoning_effort")
+            .is_none());
+        settings.reasoning_effort = Some(Effort::Low);
+        assert!(settings.descriptor().capabilities.reasoning_effort);
+        let mut model = BridgeModel::new(settings, 32).unwrap();
+        assert_eq!(
+            model.call(&request()).is_ok(),
+            received == Some(Effort::Low)
+        );
+        assert_eq!(model.take_usage().unwrap().input_tokens, 10);
+        assert!(model.take_usage().is_none());
+        peer.join().unwrap();
+        let sent = requests.lock().unwrap();
+        assert_eq!(sent[0]["reasoning_effort"], "low");
+        assert_eq!(sent[0]["max_output_tokens"], 32);
+    }
+}
 fn write_config(value: &Value) -> tempfile::NamedTempFile {
     let mut file = tempfile::NamedTempFile::new().unwrap();
     serde_json::to_writer(&mut file, value).unwrap();

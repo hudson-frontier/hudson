@@ -239,6 +239,23 @@ RSS on Linux. See [image workload measurements](images.md#transport-measurement)
 
 See [dependency licensing](dependency-licensing.md) for the process and WebSocket
 components used by these integrations.
+## Explicit native reasoning
+
+Set `runtime.reasoning_effort` to an explicit effort such as `"high"` for a peer
+that implements the setting. The pinned setting travels with every bridge
+request and the peer must return the same `reasoning_effort` receipt. Missing,
+different or unsolicited receipts fail before tool proposals are admitted;
+valid reported usage remains latched. The output-token cap stays authoritative.
+Omitted settings preserve existing JSON and transport fingerprints. Native
+discovery reports the optional `reasoning_effort` flag when explicitly enabled.
+
+Both bundled peers forward the setting to their provider request and acknowledge
+it after checking the applied configuration. Model-specific acceptance remains
+the operator's responsibility. Change immutable agent/runtime versions when
+changing execution settings; use conversation transfer for an explicit model
+change. See the [SDK guide](../integrations/agent_sdk/README.md) and
+[CLI guide](../integrations/codex/README.md).
+
 ## Linux isolation
 
 Use the opt-in [`isolated_stdio` transport](runtime-isolation.md) for explicit

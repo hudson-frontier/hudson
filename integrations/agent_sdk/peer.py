@@ -198,6 +198,7 @@ async def run_sdk(body, saved, emit):
     from agents import Agent, FunctionTool, ModelSettings, RunConfig, Runner, set_tracing_disabled
     from agents.models.openai_responses import OpenAIResponsesModel
     from openai import AsyncOpenAI
+    from openai.types.shared import Reasoning
     import httpx2 as httpx
     from urllib.parse import urlsplit
 
@@ -205,6 +206,9 @@ async def run_sdk(body, saved, emit):
         raise ValueError('unsupported SDK version')
     set_tracing_disabled(True)
     context, request = body['context'], body['request']
+    effort = body.get('reasoning_effort')
+    if effort is not None and effort not in ('none','minimal','low','medium','high','xhigh','max'):
+        raise ValueError('unsupported native reasoning effort')
     previous = context.get('previous')
     append = bool(saved is not None and context['history_mode'] == 'append')
     if append:
@@ -249,6 +253,14 @@ async def run_sdk(body, saved, emit):
             if self.requests != 0:
                 raise ValueError('native HTTP request ceiling')
             self.requests += 1
+            raw = await request.aread()
+            if len(raw)>REQUEST_BYTES:
+                raise ValueError('native upstream request byte ceiling')
+            outgoing = decode(raw)
+            if outgoing.get('max_output_tokens') != body['max_output_tokens']:
+                raise ValueError('native output allocation changed')
+            if effort is not None and outgoing.get('reasoning', {}).get('effort') != effort:
+                raise ValueError('native reasoning setting was not applied')
             request.headers['Accept-Encoding'] = 'identity'
             response = await self.inner.handle_async_request(request)
             if response.headers.get('content-encoding', 'identity').lower() != 'identity':
@@ -293,6 +305,7 @@ async def run_sdk(body, saved, emit):
             model = OneCallModel(model=request['model'], openai_client=client)
             agent = Agent(name='Hudson', instructions=request['instructions'], model=model, tools=tools,
                 model_settings=ModelSettings(max_tokens=body['max_output_tokens'], parallel_tool_calls=False,
+                    reasoning=None if effort is None else Reasoning(effort=effort),
                     truncation='disabled', store=False, response_include=['reasoning.encrypted_content']))
             result = Runner.run_streamed(agent, delta, session=session, max_turns=1,
                 run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False,
@@ -349,6 +362,8 @@ async def run_sdk(body, saved, emit):
             reply = {'protocol_version': 1, 'runtime_id': body['runtime_id'], 'runtime_version': body['runtime_version'],
                 'response': response, 'usage': {'input_tokens': usage.input_tokens, 'output_tokens': usage.output_tokens},
                 'checkpoint': checkpoint}
+            if effort is not None:
+                reply['reasoning_effort'] = effort
             return reply, session.items
 
 

@@ -50,6 +50,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     timeout = 5
     expected_key = 'synthetic-sdk-key'
     max_requests = 2
+    expected_reasoning = None
 
     def log_message(self, *_):
         pass
@@ -70,6 +71,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         assert self.path == '/v1/responses'
         assert body['max_output_tokens'] == 32 and body['stream'] is True
+        if self.expected_reasoning is not None:
+            assert body['reasoning']['effort'] == self.expected_reasoning
         assert self.headers['Authorization'] == 'Bearer '+self.expected_key
         index = len(requests)
         requests.append(body)
@@ -92,7 +95,9 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--worker', help='Also run through this real Hudson worker binary')
     parser.add_argument('--bubblewrap', help='Run the actual worker peer through Linux isolation')
+    parser.add_argument('--reasoning-effort', choices=['none','minimal','low','medium','high','xhigh','max'])
     args = parser.parse_args()
+    Handler.expected_reasoning = args.reasoning_effort
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -110,6 +115,8 @@ def main():
                        'previous': None, 'history_mode': 'replace', 'request_fingerprint': fingerprint(request)}
             body = {'protocol_version': 1, 'runtime_id': 'sdk-fixture', 'runtime_version': 1,
                     'max_output_tokens': 32, 'stream': True, 'request': request, 'context': context}
+            if args.reasoning_effort is not None:
+                body['reasoning_effort'] = args.reasoning_effort
 
             def invoke():
                 peer = str(ROOT/'integrations/agent_sdk/peer.py')
@@ -126,6 +133,7 @@ def main():
                 return frames, frames[-1]['result']
 
             _, first = invoke()
+            assert first.get('reasoning_effort') == args.reasoning_effort
             assert first['response']['type'] == 'tool_calls'
             assert first['response']['calls'][0]['call_id'] == 'lookup-1'
             _, repeated = invoke()
@@ -169,6 +177,8 @@ def main():
                     transport['isolation'] = {'bubblewrap': args.bubblewrap,
                         'read_only': [str(root) for root in roots], 'network': 'host'}
                 path = pathlib.Path(state)/'agent.json'
+                if args.reasoning_effort is not None:
+                    configuration['runtime']['reasoning_effort'] = args.reasoning_effort
                 path.write_text(json.dumps(configuration))
                 result = subprocess.run([args.worker, '--config', str(path), '--task', 'start'],
                     env=env, capture_output=True, text=True, timeout=360)

@@ -66,6 +66,14 @@ a maintained distribution package; its upstream license and notices remain
 with that package. The implementation uses its documented command-line
 [namespace and mount options](https://github.com/containers/bubblewrap/blob/main/bwrap.xml).
 
+Ubuntu hosts that restrict unprivileged user namespaces also require an
+appropriate AppArmor profile for the selected launcher. CI installs Ubuntu's
+`apparmor-profiles` package and loads its maintained
+`/usr/share/apparmor/extra-profiles/bwrap-userns-restrict` profile for
+`/usr/bin/bwrap` before the namespace preflight. Global namespace restrictions
+stay enabled. Host operators manage this permission; setup errors remain
+failures. See Ubuntu's [AppArmor user-namespace documentation](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/).
+
 After building, run real enforcement tests, including a descendant that starts
 a new process group:
 

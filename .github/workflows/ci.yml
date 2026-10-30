@@ -73,9 +73,9 @@ jobs:
       - name: Install namespace isolation dependency
         run: |
           sudo apt-get update
-          sudo apt-get install -y bubblewrap
+          sudo apt-get install -y bubblewrap apparmor-profiles
       - name: Check kernel namespace availability
-        run: bwrap --unshare-user --unshare-pid --unshare-net --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --chdir / -- /usr/bin/true
+        run: bash .github/scripts/check-namespace.sh
       - name: Build the real worker
         env:
           RUSTUP_HOME: ${{ runner.temp }}/hudson-native-rustup
@@ -106,14 +106,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y postgresql protobuf-compiler bubblewrap
+          sudo apt-get install -y postgresql protobuf-compiler bubblewrap apparmor-profiles
           sudo systemctl stop postgresql
           pg_bin="$(pg_config --bindir)"
           "$pg_bin/initdb" -D "$RUNNER_TEMP/hudson-pg" --auth=trust
           "$pg_bin/pg_ctl" -D "$RUNNER_TEMP/hudson-pg" -l "$RUNNER_TEMP/hudson-postgres.log" -o "-k /tmp -h ''" -w start
           "$pg_bin/createdb" -h /tmp hudson_harness_test_20260921
       - name: Check kernel namespace availability
-        run: bwrap --unshare-user --unshare-pid --unshare-net --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --chdir / -- /usr/bin/true
+        run: bash .github/scripts/check-namespace.sh
       - name: Run all local checks with durable execution
         shell: bash
         run: |

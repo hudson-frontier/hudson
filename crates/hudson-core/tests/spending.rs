@@ -345,3 +345,71 @@ fn cancellation_releases_only_unstarted_model_allocations() {
     ));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
+
+#[test]
+fn denial_in_one_scope_does_not_partially_reserve_another_scope() {
+    let store = Store::default();
+    let mut quotas = policy(200, None);
+    quotas.quotas.push(Quota {
+        id: "daily".into(),
+        scope: Scope::ActorDay,
+        limit_nano_usd: 100,
+        soft_nano_usd: None,
+        approvers: Default::default(),
+    });
+    install(&store, &quotas);
+    let actor = fixtures::actor();
+    let mut first = runtime(store.clone(), model(None, true, vec![]));
+    let a = submit(&first, &actor);
+    assert!(matches!(
+        fixtures::drive(&mut first, &actor, a).unwrap().wait,
+        Some(WaitReason::Reconciliation { .. })
+    ));
+    let deny_model = model(None, false, vec![]);
+    let calls = deny_model.calls.clone();
+    let mut second = runtime(store.clone(), deny_model);
+    let b = submit(&second, &actor);
+    assert_eq!(
+        fixtures::drive(&mut second, &actor, b).unwrap().status,
+        RunStatus::Failed
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let other = Actor {
+        id: "other".into(),
+        ..actor
+    };
+    let mut third = runtime(store, model(None, false, vec![]));
+    let c = submit(&third, &other);
+    assert_eq!(
+        fixtures::drive(&mut third, &other, c).unwrap().status,
+        RunStatus::Completed
+    );
+}
+
+#[test]
+fn policy_binding_is_immutable_and_large_currency_values_roundtrip_exactly() {
+    let store = Store::default();
+    let mut configuration = policy(u64::MAX, None);
+    configuration.allocation_nano_usd = (1_u64 << 53) + 1;
+    install(&store, &configuration);
+    assert!(store
+        .bind_spend_policy("demo", &fixtures::agent_ref(), None)
+        .is_err());
+    let mut changed = configuration.clone();
+    changed.rates.input_nano_usd_per_million_tokens += 1;
+    assert!(store
+        .bind_spend_policy("demo", &fixtures::agent_ref(), Some(&changed))
+        .is_err());
+    let actor = fixtures::actor();
+    let mut runtime = runtime(store.clone(), model(Some(0), false, vec![]));
+    let id = submit(&runtime, &actor);
+    assert_eq!(
+        fixtures::drive(&mut runtime, &actor, id).unwrap().status,
+        RunStatus::Completed
+    );
+    let entry = store.run_spend(&actor, id).unwrap().entries.remove(0);
+    assert_eq!(entry.allocation_nano_usd, "9007199254740993");
+    let json = serde_json::to_value(&entry).unwrap();
+    assert_eq!(json["allocation_nano_usd"], "9007199254740993");
+    assert_eq!(entry.priced_usage_nano_usd.as_deref(), Some("0"));
+}

@@ -28,6 +28,8 @@ use uuid::Uuid;
 mod conversations;
 mod event_stream;
 mod images;
+#[cfg(test)]
+mod spending_tests;
 
 struct NoModel(Option<hudson_core::budgets::ModelBudgetBinding>);
 impl ModelExecutor for NoModel {

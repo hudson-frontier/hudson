@@ -21,9 +21,20 @@ impl MemoryStore {
                 "store namespace must contain 1 to 128 bytes".into(),
             ));
         }
-        client.batch_execute("CREATE TABLE IF NOT EXISTS hudson_state (namespace TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, state JSONB NOT NULL)").map_err(database_error)?;
+        // IF NOT EXISTS does not serialize concurrent type/catalog creation.
+        // Keep bootstrap atomic across hosts, with the same bounded waits as
+        // ordinary state writes. No runtime effects occur inside this lock.
+        let mut bootstrap = client.transaction().map_err(database_error)?;
+        bootstrap
+            .batch_execute("SET LOCAL lock_timeout = '10s'; SET LOCAL statement_timeout = '30s'")
+            .map_err(database_error)?;
+        bootstrap
+            .query_one("SELECT pg_advisory_xact_lock($1)", &[&0x6875_6473_6f6e_i64])
+            .map_err(database_error)?;
+        bootstrap.batch_execute("CREATE TABLE IF NOT EXISTS hudson_state (namespace TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, state JSONB NOT NULL)").map_err(database_error)?;
         let initial = serde_json::to_value(Data::default())?;
-        client.execute("INSERT INTO hudson_state(namespace,schema_version,state) VALUES($1,1,$2) ON CONFLICT(namespace) DO NOTHING", &[&namespace,&initial]).map_err(database_error)?;
+        bootstrap.execute("INSERT INTO hudson_state(namespace,schema_version,state) VALUES($1,1,$2) ON CONFLICT(namespace) DO NOTHING", &[&namespace,&initial]).map_err(database_error)?;
+        bootstrap.commit().map_err(database_error)?;
         let mut database = Postgres {
             client,
             namespace: namespace.into(),

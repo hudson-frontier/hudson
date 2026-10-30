@@ -48,6 +48,8 @@ def response_events(index):
 
 class Handler(http.server.BaseHTTPRequestHandler):
     timeout = 5
+    expected_key = 'synthetic-sdk-key'
+    max_requests = 2
 
     def log_message(self, *_):
         pass
@@ -68,10 +70,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         assert self.path == '/v1/responses'
         assert body['max_output_tokens'] == 32 and body['stream'] is True
-        assert self.headers['Authorization'] == 'Bearer synthetic-sdk-key'
+        assert self.headers['Authorization'] == 'Bearer '+self.expected_key
         index = len(requests)
         requests.append(body)
-        assert index < 2, 'SDK must not make hidden retries or follow-up calls'
+        assert index < self.max_requests, 'native runtime must not make hidden retries or follow-up calls'
         data = response_events(index)
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')

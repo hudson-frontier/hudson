@@ -110,6 +110,9 @@ def capture(home, thread_id, response):
     if not parsed or parsed[0].get('type') != 'session_meta' or parsed[0].get('payload', {}).get('id') != thread_id:
         raise ValueError('native rollout identity mismatch')
     logged = [record['payload'] for record in parsed if record.get('type') == 'response_item']
+    pending = {item['call_id'] for item in response['output'] if item['type']=='function_call'}
+    if any(item.get('type')=='function_call_output' and item.get('call_id') in pending for item in logged):
+        raise ValueError('native shutdown synthesized an unexecuted tool receipt')
     for expected in response['output']:
         if expected['type'] == 'function_call':
             if not any(item.get('type') == 'function_call' and all(item.get(key) == expected.get(key)
@@ -194,13 +197,25 @@ def run(body, saved):
                     raise ValueError('native resolved provider binding changed')
                 thread_id = str(uuid.UUID(result['thread']['id']))
                 client.call('thread/inject_items', {'threadId':thread_id, 'items':delta}, client.deny)
-                client.call('turn/start', {'threadId':thread_id, 'input':[]}, client.deny)
+                early = []
+                def turn_event(event):
+                    if event.get('method') == 'item/tool/call':
+                        if len(early)>=128:
+                            raise ValueError('native callback ceiling')
+                        early.append(event)
+                    elif 'id' in event:
+                        client.deny(event)
+                        raise ValueError('unsupported native execution callback')
+                    elif event.get('method') == 'error':
+                        raise ValueError('native runtime failed')
+                started = client.call('turn/start', {'threadId':thread_id, 'input':[]}, turn_event)
+                turn_id = started['turn']['id']
                 callback = None
                 while True:
-                    event = client.receive()
+                    event = early.pop(0) if early else client.receive()
                     if event.get('method') == 'item/tool/call':
                         callback = event['params']
-                        if callback.get('threadId') != thread_id:
+                        if callback.get('threadId') != thread_id or callback.get('turnId') != turn_id:
                             raise ValueError('native callback thread changed')
                         break
                     if event.get('method') == 'turn/completed':
@@ -221,6 +236,10 @@ def run(body, saved):
                     if (expected is None or expected['name'] != callback.get('tool')
                             or common.decode(expected['arguments']) != callback.get('arguments')):
                         raise ValueError('native proposal receipt mismatch')
+                    # SIGTERM can make the vendor log a synthetic "cancelled"
+                    # function output. Preserve the actual pending native call;
+                    # only the next admitted host receipt may resolve it.
+                    client.close(force=True)
             # Stop the vendor while its customer tool remains unexecuted. A fresh
             # admitted attempt restores the file and injects the host's receipt.
             native = capture(home, thread_id, response)

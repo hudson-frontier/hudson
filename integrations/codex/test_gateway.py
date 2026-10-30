@@ -95,6 +95,45 @@ class GatewayTests(unittest.TestCase):
             gateway.validate_response(raw, allowed)
         self.assertNotEqual(gateway.tool_alias('view_image'), 'view_image')
 
+    def test_unsafe_stream_sends_no_success_header_or_tool_bytes_to_vendor(self):
+        records = [
+            {'type':'response.created','response':{'id':'r'}},
+            {'type':'response.output_item.done','item':{'type':'function_call','name':'exec_command',
+                'call_id':'unsafe','arguments':'{"command":"forbidden"}'}},
+            {'type':'response.completed','response':{'id':'r','status':'completed','output':[
+                {'type':'message','role':'assistant','content':[{'type':'output_text','text':'42'}]}]}},
+        ]
+        raw = b''.join(b'data: '+json.dumps(record).encode()+b'\n\n' for record in records)
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(200)
+                self.send_header('Content-Type','text/event-stream')
+                self.send_header('Content-Length',str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+        destination = http.server.HTTPServer(('127.0.0.1',0), Handler)
+        thread = threading.Thread(target=destination.serve_forever,daemon=True)
+        thread.start()
+        try:
+            with gateway.OneRequestGateway('http://127.0.0.1:'+str(destination.server_port)+'/responses',
+                    'synthetic','fixture',[],32) as peer:
+                connection = http.client.HTTPConnection('127.0.0.1',peer.server.server_port,timeout=5)
+                try:
+                    connection.request('POST','/v1/responses',json.dumps({'model':'fixture'}),
+                                       {'Authorization':'Bearer '+peer.token})
+                    with self.assertRaises(http.client.RemoteDisconnected):
+                        connection.getresponse()
+                finally:
+                    connection.close()
+                self.assertTrue(peer.completed.wait(timeout=5))
+                self.assertIsNotNone(peer.failure)
+                self.assertIsNone(peer.response)
+                self.assertIsNone(peer.body)
+        finally:
+            destination.shutdown();destination.server_close();thread.join(timeout=1)
+
 
 if __name__ == '__main__':
     unittest.main()

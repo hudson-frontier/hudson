@@ -154,7 +154,8 @@ class OneRequestGateway:
         self.by_alias = {tool_alias(tool['name']): tool['name'] for tool in tools}
         if len(self.by_alias) != len(tools):
             raise ValueError('duplicate native tool alias')
-        self.tools = [dict(tool, name=tool_alias(tool['name'])) for tool in tools]
+        self.tools = [dict(tool, name=tool_alias(tool['name']),
+                          description=tool['name']+': '+tool['description']) for tool in tools]
         self.token = secrets.token_urlsafe(32)
         self.used = False
         self.lock = threading.Lock()

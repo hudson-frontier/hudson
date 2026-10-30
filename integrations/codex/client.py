@@ -113,7 +113,7 @@ class RpcProcess:
                     self.error = 'RPC diagnostic byte ceiling'
                     self._put(None)
                     return
-        except OSError:
+        except (OSError, ValueError):
             pass
 
     def receive(self):
@@ -156,10 +156,13 @@ class RpcProcess:
             self.send({'id': event['id'], 'error': {
                 'code': -32601, 'message': 'Execution belongs to the host'}})
 
-    def close(self):
+    def close(self, force=False):
         self.stopping.set()
         if self.process.poll() is None:
-            self.process.terminate()
+            if force:
+                self.process.kill()
+            else:
+                self.process.terminate()
             try:
                 self.process.wait(timeout=2)
             except subprocess.TimeoutExpired:

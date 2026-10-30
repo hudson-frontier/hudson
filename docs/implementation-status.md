@@ -1,5 +1,13 @@
 # Implementation audit
 
+The bundled Codex 0.165.0 peer now has installed-executable acceptance for native
+rollout continuation/fork, actor separation, cached replay and exact one-request
+admission. The actual worker completes its host-owned tool cycle inside Linux
+isolation. Native built-ins remain unavailable; customer tools use the host's
+authorization and approval path. The [conformance matrix](runtime-conformance.md)
+distinguishes this evidence from other vendors, account workflows, active-turn
+controls and live model acceptance.
+
 The opt-in Linux `isolated_stdio` transport adds explicit read-only mounts, a
 writable workspace, bounded private temporary storage and deny/host networking.
 Its separate real-Bubblewrap CI tests cover enforcement and descendant cleanup.

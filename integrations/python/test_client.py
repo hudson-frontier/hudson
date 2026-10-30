@@ -20,6 +20,16 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.client.harnesses(), [{'id': 'fixture', 'version': 1}])
         self.assertEqual([(method, path) for method, path, _, _ in self.requests], [('GET', '/harnesses')])
 
+    def test_spend_views_preserve_decimal_strings_and_unknown_usage(self):
+        expected = {'enabled': True, 'currency': 'USD', 'units_per_usd': 1000000000,
+                    'entries': [{'allocation_nano_usd': '9007199254740993',
+                                 'priced_usage_nano_usd': None, 'status': 'unknown'}]}
+        self.respond = lambda *_: (200, expected, {})
+        self.assertEqual(self.client.run_spend(RUN), expected)
+        self.client.operation_spend(OTHER)
+        self.assertEqual([(method, path) for method, path, _, _ in self.requests], [
+            ('GET', f'/runs/{RUN}/spend'), ('GET', f'/operations/{OTHER}/spend')])
+
     def test_explicit_image_input_is_sent_as_data_without_path_or_url_resolution(self):
         images = [{'media_type': 'image/png', 'data': 'YQ=='}]
         self.client.start_images('question', images, request_key='image-one')

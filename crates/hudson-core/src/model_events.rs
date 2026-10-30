@@ -152,3 +152,126 @@ impl ModelObserver for RunModelObserver<'_> {
         Ok(())
     }
 }
+
+#[cfg(all(test, feature = "fixtures"))]
+mod tests {
+    use super::*;
+    use crate::{fixtures, models::Attempt};
+    use uuid::Uuid;
+
+    #[test]
+    fn replaced_attempt_and_cancellation_cannot_flush_buffered_text() {
+        for cancelled in [false, true] {
+            let mut runtime = fixtures::runtime().unwrap();
+            let actor = fixtures::actor();
+            let run = runtime
+                .submit(
+                    &actor,
+                    fixtures::agent_ref(),
+                    json!({"order_id":"123","action":"lookup"}),
+                    None,
+                )
+                .unwrap();
+            runtime.tick(&actor, run).unwrap();
+            let operation = runtime.store.operations(&actor, run).unwrap()[0].meta.id;
+            let attempt = Uuid::new_v4();
+            runtime
+                .store
+                .transact(|data| {
+                    let op = data.operations.get_mut(&operation).unwrap();
+                    op.status = OperationStatus::Running;
+                    op.attempts.push(Attempt {
+                        id: attempt,
+                        number: 1,
+                        started_at: 0,
+                        finished_at: None,
+                        status: OperationStatus::Running,
+                        error: None,
+                        token_usage: None,
+                    });
+                    Ok(())
+                })
+                .unwrap();
+            let mut observer = RunModelObserver::new(
+                &runtime.store,
+                &actor,
+                ModelCallContext {
+                    run_id: run,
+                    operation_id: operation,
+                    attempt_id: attempt,
+                },
+                65536,
+            );
+            observer.text_delta("first").unwrap();
+            observer.text_delta("buffered").unwrap();
+            let before = runtime.store.events(&actor, run, 0).unwrap().len();
+            runtime
+                .store
+                .transact(|data| {
+                    if cancelled {
+                        data.runs.get_mut(&run).unwrap().status = RunStatus::Cancelling;
+                    } else {
+                        data.operations
+                            .get_mut(&operation)
+                            .unwrap()
+                            .attempts
+                            .last_mut()
+                            .unwrap()
+                            .id = Uuid::new_v4();
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            assert!(observer.cancelled());
+            assert_eq!(observer.finish().is_ok(), cancelled);
+            assert_eq!(runtime.store.events(&actor, run, 0).unwrap().len(), before);
+        }
+    }
+
+    #[test]
+    fn stream_pages_bound_bytes_and_allow_one_large_event_to_progress() {
+        let runtime = fixtures::runtime().unwrap();
+        let actor = fixtures::actor();
+        let run = runtime
+            .submit(
+                &actor,
+                fixtures::agent_ref(),
+                json!({"order_id":"123","action":"lookup"}),
+                None,
+            )
+            .unwrap();
+        runtime
+            .store
+            .transact(|data| {
+                for _ in 0..40 {
+                    data.event(
+                        run,
+                        None,
+                        EventType::ModelOutputDelta,
+                        None,
+                        json!({"text":"x".repeat(8192)}),
+                    );
+                }
+                data.event(
+                    run,
+                    None,
+                    EventType::ModelOutputDelta,
+                    None,
+                    json!({"text":"x".repeat(200000)}),
+                );
+                Ok(())
+            })
+            .unwrap();
+        let page = runtime.store.event_stream_page(&actor, run, 0).unwrap();
+        assert!(!page.is_empty() && page.len() < 32);
+        assert!(
+            page.iter()
+                .map(|e| serde_json::to_vec(e).unwrap().len())
+                .sum::<usize>()
+                <= 128 * 1024
+        );
+        let page = runtime.store.event_stream_page(&actor, run, 41).unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].sequence, 42);
+    }
+}

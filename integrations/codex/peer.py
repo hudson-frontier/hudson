@@ -32,7 +32,7 @@ gateway = module('hudson_codex_gateway', ROOT/'gateway.py')
 common = module('hudson_native_state', ROOT.parent/'agent_sdk/peer.py')
 
 
-def configuration(home, proxy, model):
+def configuration(home, proxy, model, effort=None):
     values = [
         'model = '+json.dumps(model), 'model_provider = "hudson"',
         'project_doc_max_bytes = 0', 'model_auto_compact_token_limit = 9223372036854775807',
@@ -48,6 +48,8 @@ def configuration(home, proxy, model):
         'env_key = "HUDSON_CODEX_PROXY_TOKEN"', 'request_max_retries = 0',
         'stream_max_retries = 0', 'requires_openai_auth = false', 'supports_websockets = false',
     ]
+    if effort is not None:
+        values.insert(0, 'model_reasoning_effort = '+json.dumps(effort))
     (home/'config.toml').write_text('\n'.join(values)+'\n', encoding='utf-8')
     # The child never receives the real provider credential, inherited account
     # configuration or caller-supplied command-line settings.
@@ -175,6 +177,7 @@ def model_response(response, by_alias):
 
 def run(body, saved):
     context, request = body['context'], body['request']
+    effort = body.get('reasoning_effort')
     executable = pathlib.Path(os.environ['HUDSON_CODEX_EXECUTABLE'])
     if not executable.is_absolute() or not executable.is_file():
         raise ValueError('native executable unavailable')
@@ -191,8 +194,8 @@ def run(body, saved):
         home = pathlib.Path(temporary)
         endpoint = os.environ.get('HUDSON_CODEX_ENDPOINT', 'https://api.openai.com/v1/responses')
         with gateway.OneRequestGateway(endpoint, os.environ['OPENAI_API_KEY'], request['model'],
-                request['tools'], body['max_output_tokens']) as proxy:
-            env = configuration(home, proxy, request['model'])
+                request['tools'], body['max_output_tokens'], reasoning_effort=effort) as proxy:
+            env = configuration(home, proxy, request['model'], effort)
             with rpc.RpcProcess(executable, ['app-server', '--listen', 'stdio://'], home, env) as client:
                 initialize(client)
                 parameters = {'model': request['model'], 'modelProvider': 'hudson', 'cwd': str(home),
@@ -222,7 +225,10 @@ def run(body, saved):
                         raise ValueError('unsupported native execution callback')
                     elif event.get('method') == 'error':
                         raise ValueError('native runtime failed')
-                started = client.call('turn/start', {'threadId':thread_id, 'input':[]}, turn_event)
+                turn = {'threadId':thread_id, 'input':[]}
+                if effort is not None:
+                    turn['effort'] = effort
+                started = client.call('turn/start', turn, turn_event)
                 turn_id = started['turn']['id']
                 callback = None
                 while True:
@@ -266,6 +272,8 @@ def run(body, saved):
             reply = {'protocol_version':1, 'runtime_id':body['runtime_id'], 'runtime_version':body['runtime_version'],
                 'response':result, 'checkpoint':checkpoint,
                 'usage':None if usage is None else {key:usage[key] for key in ('input_tokens','output_tokens')}}
+            if effort is not None:
+                reply['reasoning_effort'] = effort
             return reply, native, text
 
 

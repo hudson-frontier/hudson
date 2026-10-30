@@ -83,7 +83,7 @@ jobs:
       - name: Check private native checkpoints
         run: python -I -m unittest discover -s integrations/agent_sdk -v
       - name: Exercise real SDK and worker against local fixtures
-        run: python -I scripts/smoke_native_sdk.py --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap
+        run: python -I scripts/smoke_native_sdk.py --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap --reasoning-effort high
 
   native_codex:
     name: Native CLI conformance
@@ -118,7 +118,7 @@ jobs:
       - name: Exercise real CLI and worker inside isolation
         run: |
           native="$(python -c 'import os,pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"])/"hudson-codex/node_modules"; found=list(root.glob("**/vendor/x86_64-unknown-linux-musl/bin/codex")); assert len(found)==1; print(found[0])')"
-          python -I scripts/smoke_native_codex.py --codex "$native" --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap
+          python -I scripts/smoke_native_codex.py --codex "$native" --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap --reasoning-effort high
 
   native_claude:
     name: Native Claude conformance

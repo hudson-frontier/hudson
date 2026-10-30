@@ -11,6 +11,7 @@ pub mod published_worker;
 pub mod recovery;
 pub mod runtime;
 pub mod security;
+pub mod spending;
 pub mod storage;
 pub mod verification;
 

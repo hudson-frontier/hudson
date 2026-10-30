@@ -1,5 +1,10 @@
 # Local Python client
 
+`run_spend(run_id)` and `operation_spend(operation_id)` read configured model
+allocations and priced/unknown outcomes. Amounts use decimal strings in nano USD;
+missing usage stays `None`. Inspect a model-spend quote before using the normal
+approval control. See [allocation semantics](../../docs/spending.md).
+
 The standard-library `hudson_client.py` module targets the documented preview
 HTTP API. Python is used by the existing publication/restart acceptance caller
 in `scripts/smoke_publication.py`; this client replaces repeated transport code

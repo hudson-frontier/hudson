@@ -47,6 +47,32 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             {
                 return Err(Error::Invalid("operation request changed".into()));
             }
+            if matches!(operation.request,OperationRequest::Model {..}) {
+                match crate::spending::admit(d,&run,&operation,at)? {
+                    Admission::Allow=>{},
+                    Admission::Deny=>{
+                        crate::spending::release(d,run_id,id)?;
+                        operation.status=OperationStatus::Denied;
+                        operation.revision+=1;
+                        d.operations.insert(id,operation);
+                        d.event(run_id,Some(id),EventType::OperationSettled,None,json!({"status":"denied","code":"spend_allocation_denied"}));
+                        return Ok(None);
+                    },
+                    Admission::Wait=>{
+                        let new_wait=operation.status!=OperationStatus::WaitingApproval;
+                        operation.status=OperationStatus::WaitingApproval;
+                        operation.approval.get_or_insert_with(||Approval {request_digest:operation.request_digest.clone(),decisions:vec![]});
+                        operation.revision+=1;
+                        d.operations.insert(id,operation);
+                        let run=d.runs.get_mut(&run_id).unwrap();
+                        run.status=RunStatus::Waiting;
+                        run.wait=Some(WaitReason::Approval {operation_id:id});
+                        run.revision+=1;
+                        if new_wait {d.event(run_id,Some(id),EventType::ApprovalRequested,None,json!({"kind":"model_spend"}));d.event(run_id,None,EventType::RunWaiting,None,json!({}));}
+                        return Ok(None);
+                    },
+                }
+            }
             let tool = match &operation.request {
                 OperationRequest::Tool { tool_ref, call } => {
                     let tool = d.tools[&(actor.workspace_id.clone(), tool_ref.clone())].clone();
@@ -137,6 +163,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 _ => None,
             };
             let attempt_id = Uuid::new_v4();
+            if matches!(operation.request,OperationRequest::Model {..}) {crate::spending::start(d,run_id,id,attempt_id);}
             operation.attempts.push(Attempt {
                 token_usage: None,
                 id: attempt_id,
@@ -279,6 +306,15 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             {
                 return Err(Error::Conflict("stale execution result".into()));
             }
+            let result = if matches!(op.request, OperationRequest::Model { .. })
+                && crate::spending::settle(d, run_id, id, attempt_id, token_usage.as_ref())?
+            {
+                Err(ExecutionError::Failed(
+                    "priced model usage exceeded its allocation; spend scopes are frozen".into(),
+                ))
+            } else {
+                result
+            };
             let (status, error) = match result {
                 Ok(result) => {
                     op.result = Some(result);

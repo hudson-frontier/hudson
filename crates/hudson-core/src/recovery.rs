@@ -136,6 +136,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 return Err(Error::Conflict("running attempt changed".into()));
             }
             operation.status = OperationStatus::Unknown;
+            crate::spending::interrupted(d,operation.run_id,operation_id,attempt_id)?;
             operation.revision += 1;
             let attempt = operation.attempts.last_mut().expect("validated attempt");
             attempt.status = OperationStatus::Unknown;

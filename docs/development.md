@@ -79,11 +79,14 @@ a supplied task or run ID; it is not a distributed queue consumer.
 | `http_tools` | Versioned HTTP tool definitions and approval settings |
 | `subagents` | Nested specialist agent configurations |
 | `shared_model_budget` | Persisted group ID and model-call ceiling |
+| `spend` | Optional pinned model allocations, rates, quota scopes and approval thresholds |
 
 The [harness controls guide](harness-controls.md) covers durable steering,
 follow-ups, context headroom, and provider reasoning settings.
 The [conversation transfer guide](conversations.md) covers explicit exports,
 independent forks and imports into another immutable agent or runtime.
+The [spend guide](spending.md) covers persistent allocation admission, priced
+usage, unknown reports, approvals and state-format migration.
 The [execution adapter guide](execution-adapters.md) describes operator-owned
 HTTP/stdio SDK bridges, capability discovery and their lifecycle limits.
 

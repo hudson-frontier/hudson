@@ -522,7 +522,7 @@
             }
           }
         },
-        "description": "Decision applies to the persisted request digest under current policy. Local approval expires after 60 seconds. Inspect the operation arguments before deciding."
+        "description": "Approve or reject the exact pending tool operation or opt-in model allocation. Inspect /operations/{id}/spend before model-spend approval. Approval does not raise quotas or authorize another operation. Current authorization is rechecked before IO."
       }
     },
     "/capabilities": {
@@ -1297,6 +1297,101 @@
           }
         }
       }
+    },
+    "/runs/{id}/spend": {
+      "get": {
+        "operationId": "inspectRunSpend",
+        "summary": "Inspect actor-owned model allocations and priced or unknown outcomes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSpend"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/operations/{id}/spend": {
+      "get": {
+        "operationId": "inspectOperationSpend",
+        "summary": "Inspect actor-owned model allocations and priced or unknown outcomes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SpendView"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1876,7 +1971,8 @@
               "input_queued",
               "input_consumed",
               "input_queue_cleared",
-              "model_output_delta"
+              "model_output_delta",
+              "spend_reconciled"
             ]
           },
           "actor_id": {
@@ -3180,6 +3276,98 @@
           "agent_ref"
         ],
         "additionalProperties": false
+      },
+      "SpendView": {
+        "type": "object",
+        "properties": {
+          "quoted_at": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "UTC allocation-admission time in milliseconds since the Unix epoch."
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allocation_nano_usd": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,19})$",
+            "description": "Exact unsigned nano USD decimal string. 1000000000 units equal one USD."
+          },
+          "priced_usage_nano_usd": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,19})$",
+                "description": "Exact unsigned nano USD decimal string. 1000000000 units equal one USD."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "reserved",
+              "in_flight",
+              "priced",
+              "unknown",
+              "released"
+            ]
+          },
+          "overrun": {
+            "type": "boolean"
+          },
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "quoted_at",
+          "operation_id",
+          "allocation_nano_usd",
+          "priced_usage_nano_usd",
+          "status",
+          "overrun",
+          "attempt_id"
+        ],
+        "additionalProperties": false
+      },
+      "RunSpend": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "currency": {
+            "const": "USD"
+          },
+          "units_per_usd": {
+            "const": 1000000000
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpendView"
+            }
+          }
+        },
+        "required": [
+          "enabled",
+          "currency",
+          "units_per_usd",
+          "entries"
+        ],
+        "additionalProperties": false,
+        "description": "Actor-owned model allocation records. Priced usage uses reported tokens and pinned operator rates. Missing reports retain allocations. Empty entries with enabled=false indicate unavailable pricing, not zero provider consumption."
       }
     },
     "securitySchemes": {

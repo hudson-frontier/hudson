@@ -87,6 +87,8 @@ pub struct ModelProfile {
     pub reasoning: Option<crate::adapters::reasoning::Reasoning>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<crate::adapters::runtime_bridge::BridgeConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend: Option<crate::spending::SpendPolicy>,
 }
 fn profile_endpoint() -> String {
     "https://api.openai.com/v1/chat/completions".into()
@@ -424,6 +426,9 @@ impl ModelProfile {
         }
         if let Some(reasoning) = &self.reasoning {
             value["reasoning"] = json!(reasoning);
+        }
+        if let Some(spend) = &self.spend {
+            value["spend"] = json!(spend);
         }
         value
     }

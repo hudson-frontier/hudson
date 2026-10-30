@@ -52,6 +52,8 @@ pub(super) struct LocalFile {
     #[cfg(unix)]
     name: OsString,
     data: Data,
+    #[cfg(unix)]
+    schema_version: u32,
     unavailable: bool,
 }
 
@@ -162,7 +164,7 @@ impl MemoryStore {
         private_metadata(&lock.metadata().map_err(io_error)?)?;
         lock.try_lock()
             .map_err(|_| Error::Conflict("local session is already open".into()))?;
-        let data = match openat(
+        let (data, schema_version) = match openat(
             &directory,
             name.as_os_str(),
             OFlags::RDONLY | flags,
@@ -180,16 +182,16 @@ impl MemoryStore {
                     return Err(Error::Invalid("local state exceeds 64 MiB".into()));
                 }
                 let envelope: Saved = serde_json::from_slice(&bytes)?;
-                if envelope.schema_version != 1 {
+                if !matches!(envelope.schema_version, 1 | 2) {
                     return Err(Error::Unsupported("unknown local state schema".into()));
                 }
                 let mut data = envelope.state;
                 for run in data.runs.values_mut() {
                     run.restore_verified_null_result();
                 }
-                data
+                (data, envelope.schema_version)
             }
-            Err(rustix::io::Errno::NOENT) => Data::default(),
+            Err(rustix::io::Errno::NOENT) => (Data::default(), 1),
             Err(error) => return Err(io_error(error.into())),
         };
         Ok(Self {
@@ -198,6 +200,7 @@ impl MemoryStore {
                 directory,
                 name,
                 data,
+                schema_version,
                 unavailable: false,
             }))),
             ..Self::default()
@@ -246,10 +249,20 @@ impl LocalFile {
         let mut next = self.data.clone();
         let result = f(&mut next)?;
         let mut snapshot = BoundedSnapshot::default();
+        let schema_version = self.schema_version.max(
+            if !next.spend_policies.is_empty()
+                || !next.spend_entries.is_empty()
+                || !next.spend_accounts.is_empty()
+            {
+                2
+            } else {
+                1
+            },
+        );
         serde_json::to_writer(
             &mut snapshot,
             &Snapshot {
-                schema_version: 1,
+                schema_version,
                 state: &next,
             },
         )
@@ -296,6 +309,7 @@ impl LocalFile {
         // Sync the rename as well as its contents on Unix.
         self.directory.sync_all().map_err(io_error)?;
         self.data = next;
+        self.schema_version = schema_version;
         self.unavailable = false;
         Ok(result)
     }

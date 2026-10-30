@@ -5,6 +5,16 @@ use uuid::Uuid;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Data {
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        with = "super::pairs"
+    )]
+    pub spend_policies: BTreeMap<(String, VersionRef), crate::spending::SpendPolicy>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub spend_accounts: BTreeMap<String, crate::spending::Account>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub spend_entries: BTreeMap<Uuid, BTreeMap<Uuid, crate::spending::SpendEntry>>,
     #[serde(default)]
     pub experiments: BTreeMap<Uuid, crate::experiments::Record>,
     #[serde(default)]

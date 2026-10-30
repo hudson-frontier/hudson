@@ -21,6 +21,7 @@ can be loaded at startup or published through authenticated catalog mode. Creden
 | `POST /runs` | Submit JSON input to the root agent; optionally deduplicate with `request_key` |
 | `POST /runs/images` | Submit JSON task input with explicit bounded image attachments |
 | `GET /runs/{id}` | Read status, question/approval wait, usage and result |
+| `GET /runs/{id}/spend` | Read actor-owned model allocations and priced/unknown outcomes |
 | `GET /runs/{id}/schedule` | Inspect durable scheduling publication evidence, without executing work |
 | `GET /runs/{id}/children` | Discover direct children and their statuses |
 | `GET /runs/{id}/events?after=0&limit=100` | Poll a bounded event page after an exclusive sequence cursor |
@@ -33,11 +34,17 @@ can be loaded at startup or published through authenticated catalog mode. Creden
 | `POST /runs/{id}/input` | Record an answer for `question_id` and schedule continuation |
 | `POST /runs/{id}/cancel` | Request cancellation of the run and known children |
 | `GET /operations/{id}` | Inspect exact arguments, status and approval details |
+| `GET /operations/{id}/spend` | Inspect the quoted model allocation before approval |
 | `POST /operations/{id}/approval` | Submit `{"approved":true}` or `{"approved":false}` |
 
 Submission returns `202` with a `run_id`; it does not promise completion. Poll the
 run until it waits or reaches a terminal status. Approval, reply, and resume
 schedule work and return the run handle. Inspect the saved outcome afterward.
+
+Opt-in spend policies can request approval for a model operation. Inspect its
+[allocation quote](spending.md) before deciding. Amounts are exact decimal strings
+in nano USD; unavailable usage remains `null` and retains its allocation. Existing
+tool approval behavior is preserved.
 Resume, reply, and approval reject a changed saved budget binding with `409`
 before accepting the control action. Restore the original budget group to continue
 a nonterminal run; starting a new batch requires a new run.

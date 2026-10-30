@@ -28,6 +28,8 @@ struct Definition {
     memory: Option<crate::memory::MemoryConfig>,
     #[serde(default)]
     allow_user_input: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime: Option<crate::adapters::runtime_bridge::BridgeConfig>,
     #[serde(default)]
     model: Option<String>,
     #[serde(default = "endpoint")]
@@ -197,7 +199,11 @@ fn selected_model(definition: &Definition) -> Result<&str, Box<dyn std::error::E
     match definition.model.as_deref() {
         Some(model) if !model.trim().is_empty() => Ok(model),
         Some(_) => Err("model must not be empty".into()),
-        None if matches!(definition.provider.as_str(), "" | "openai") => Ok("gpt-4.1-mini"),
+        None if definition.runtime.is_none()
+            && matches!(definition.provider.as_str(), "" | "openai") =>
+        {
+            Ok("gpt-4.1-mini")
+        }
         None => Err("set a model for the selected provider explicitly".into()),
     }
 }
@@ -225,6 +231,7 @@ pub struct ConfiguredTree {
     pub runtime: AgentRuntime,
     pub reference: VersionRef,
     pub goal: Option<Goal>,
+    pub execution_catalog: Vec<crate::adapters::runtime_bridge::ExecutionDescriptor>,
     children: ChildRuntimes,
 }
 impl ConfiguredTree {
@@ -356,75 +363,94 @@ fn build(
         Some(reasoning) => crate::definitions::digest(&(&transport_fingerprint, reasoning))?,
         None => transport_fingerprint,
     };
+    let transport_fingerprint = match &definition.runtime {
+        Some(runtime) => crate::definitions::digest(&(&transport_fingerprint, runtime))?,
+        None => transport_fingerprint,
+    };
     let transport_fingerprint = if mode == BuildMode::Experiment {
         crate::definitions::digest(&(&transport_fingerprint, "offline-fixture-v1"))?
     } else {
         transport_fingerprint
     };
-    let model: Box<dyn ModelExecutor> = match definition.provider.as_str() {
-        "" | "openai" => {
-            let key = credential(
-                definition
-                    .api_key_env
-                    .as_deref()
-                    .unwrap_or("OPENAI_API_KEY"),
-                definition.api_key_env.is_some() || definition.endpoint == endpoint(),
-            )?;
-            Box::new(
-                chat_model(&definition.endpoint, key, definition.max_output_tokens)?
-                    .with_legacy_token_limit(definition.legacy_token_limit)
-                    .with_reasoning(definition.reasoning.clone())?,
-            )
+    let model: Box<dyn ModelExecutor> = if let Some(runtime) = &definition.runtime {
+        if mode == BuildMode::Experiment {
+            return Err("external runtime bridges are unavailable in offline experiments".into());
         }
-        "anthropic" => {
-            let url = if definition.endpoint == endpoint() {
-                "https://api.anthropic.com/v1/messages"
-            } else {
-                &definition.endpoint
-            };
-            let key = credential(
-                definition
-                    .api_key_env
-                    .as_deref()
-                    .unwrap_or("ANTHROPIC_API_KEY"),
-                definition.api_key_env.is_some() || url == "https://api.anthropic.com/v1/messages",
-            )?;
-            Box::new(
-                AnthropicModel::new(url, key, definition.max_output_tokens)?
-                    .with_reasoning(definition.reasoning.clone())?,
-            )
+        if admission {
+            Box::new(AdmissionModel)
+        } else {
+            Box::new(crate::adapters::runtime_bridge::BridgeModel::new(
+                runtime.clone(),
+                definition.max_output_tokens,
+            )?)
         }
-        "gemini" | "ollama" => {
-            let default_url = if definition.provider == "gemini" {
-                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-            } else {
-                "http://127.0.0.1:11434/v1/chat/completions"
-            };
-            let url = if definition.endpoint == endpoint() {
-                default_url
-            } else {
-                &definition.endpoint
-            };
-            let key_env =
-                definition
-                    .api_key_env
-                    .as_deref()
-                    .or(if definition.provider == "gemini" {
-                        Some("GEMINI_API_KEY")
-                    } else {
-                        None
-                    });
-            let key = key_env
-                .map(|name| credential(name, true))
-                .transpose()?
-                .flatten();
-            Box::new(
-                chat_model(url, key, definition.max_output_tokens)?
-                    .with_legacy_token_limit(true)
-                    .with_reasoning(definition.reasoning.clone())?,
-            )
+    } else {
+        match definition.provider.as_str() {
+            "" | "openai" => {
+                let key = credential(
+                    definition
+                        .api_key_env
+                        .as_deref()
+                        .unwrap_or("OPENAI_API_KEY"),
+                    definition.api_key_env.is_some() || definition.endpoint == endpoint(),
+                )?;
+                Box::new(
+                    chat_model(&definition.endpoint, key, definition.max_output_tokens)?
+                        .with_legacy_token_limit(definition.legacy_token_limit)
+                        .with_reasoning(definition.reasoning.clone())?,
+                )
+            }
+            "anthropic" => {
+                let url = if definition.endpoint == endpoint() {
+                    "https://api.anthropic.com/v1/messages"
+                } else {
+                    &definition.endpoint
+                };
+                let key = credential(
+                    definition
+                        .api_key_env
+                        .as_deref()
+                        .unwrap_or("ANTHROPIC_API_KEY"),
+                    definition.api_key_env.is_some()
+                        || url == "https://api.anthropic.com/v1/messages",
+                )?;
+                Box::new(
+                    AnthropicModel::new(url, key, definition.max_output_tokens)?
+                        .with_reasoning(definition.reasoning.clone())?,
+                )
+            }
+            "gemini" | "ollama" => {
+                let default_url = if definition.provider == "gemini" {
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                } else {
+                    "http://127.0.0.1:11434/v1/chat/completions"
+                };
+                let url = if definition.endpoint == endpoint() {
+                    default_url
+                } else {
+                    &definition.endpoint
+                };
+                let key_env =
+                    definition
+                        .api_key_env
+                        .as_deref()
+                        .or(if definition.provider == "gemini" {
+                            Some("GEMINI_API_KEY")
+                        } else {
+                            None
+                        });
+                let key = key_env
+                    .map(|name| credential(name, true))
+                    .transpose()?
+                    .flatten();
+                Box::new(
+                    chat_model(url, key, definition.max_output_tokens)?
+                        .with_legacy_token_limit(true)
+                        .with_reasoning(definition.reasoning.clone())?,
+                )
+            }
+            _ => return Err("unsupported provider".into()),
         }
-        _ => return Err("unsupported provider".into()),
     };
     // Construct adapters above to retain their configuration validation, then discard
     // them without any network calls. Admission never retains an executable model.
@@ -755,6 +781,20 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
         return Err("unsupported provider".into());
     }
     selected_model(definition)?;
+    if let Some(runtime) = &definition.runtime {
+        runtime.validate()?;
+        if !definition.provider.is_empty()
+            || definition.endpoint != endpoint()
+            || definition.api_key_env.is_some()
+            || definition.reasoning.is_some()
+            || definition.legacy_token_limit
+        {
+            return Err(
+                "runtime bridges cannot be combined with provider transport or reasoning settings"
+                    .into(),
+            );
+        }
+    }
     definition.limits.validate()?;
     definition.coordination.validate()?;
     if let Some(memory) = &definition.memory {
@@ -795,6 +835,11 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
             return Err("invalid shared budget".into());
         }
     }
+    let alias_provider = if definition.runtime.is_some() {
+        "bridge"
+    } else {
+        &definition.provider
+    };
     let mut names = std::collections::BTreeSet::new();
     if definition.memory.is_some() {
         names.extend(["recall_memory", "retain_memory", "delete_memory"].map(str::to_owned));
@@ -809,7 +854,7 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
         names.insert("load_skill".to_owned());
     }
     for tool in &definition.http_tools {
-        validate_provider_alias(&tool.name, &definition.provider)?;
+        validate_provider_alias(&tool.name, alias_provider)?;
         if tool.name.trim().is_empty() || !names.insert(tool.name.clone()) {
             return Err("empty or duplicate tool name".into());
         }
@@ -834,7 +879,7 @@ fn validate_contracts(definition: &Definition) -> Result<(), Box<dyn std::error:
             format!("delegate_{}", child.name),
             format!("join_delegate_{}", child.name),
         ] {
-            validate_provider_alias(&name, &definition.provider)?;
+            validate_provider_alias(&name, alias_provider)?;
             if !names.insert(name) {
                 return Err("delegation tool name conflicts with another tool".into());
             }
@@ -889,6 +934,37 @@ impl FrozenDefinition {
 }
 
 impl Configuration {
+    /// Declared common execution controls for the root and its specialists.
+    /// Discovery never resolves credentials or launches an adapter.
+    pub fn execution_catalog(&self) -> Vec<crate::adapters::runtime_bridge::ExecutionDescriptor> {
+        fn visit(
+            definition: &Definition,
+            entries: &mut Vec<crate::adapters::runtime_bridge::ExecutionDescriptor>,
+        ) {
+            let entry = match &definition.runtime {
+                Some(runtime) => runtime.descriptor(),
+                None => crate::adapters::runtime_bridge::ExecutionDescriptor::new(
+                    if definition.provider.is_empty() {
+                        "openai".into()
+                    } else {
+                        definition.provider.clone()
+                    },
+                    1,
+                    "provider_http",
+                    false,
+                ),
+            };
+            if !entries.contains(&entry) {
+                entries.push(entry);
+            }
+            for child in &definition.subagents {
+                visit(child, entries);
+            }
+        }
+        let mut entries = Vec::new();
+        visit(&self.0, &mut entries);
+        entries
+    }
     /// Customer publications get a separate shared budget for each idempotent
     /// root submission. Trusted startup configurations retain their explicit group.
     pub(crate) fn for_submission(&self, actor: &Actor, request_key: &str) -> crate::Result<Self> {
@@ -998,6 +1074,7 @@ impl Configuration {
         actor: &Actor,
         mode: BuildMode,
     ) -> Result<ConfiguredTree, Box<dyn std::error::Error>> {
+        let execution_catalog = self.execution_catalog();
         let mut definition = self.0;
         let goal = definition.goal.take();
         let budget = definition.shared_model_budget.take();
@@ -1014,6 +1091,7 @@ impl Configuration {
             runtime,
             reference,
             goal,
+            execution_catalog,
             children,
         })
     }

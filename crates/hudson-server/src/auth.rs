@@ -84,6 +84,49 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
+    async fn harness_discovery_uses_the_host_authentication_gate() {
+        let store = Store::default();
+        let actor = hudson_core::fixtures::actor();
+        let router = protect(
+            crate::routes::router().unwrap(),
+            store.clone(),
+            actor.clone(),
+        );
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/harnesses")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let token = store
+            .issue_api_token(actor, "discovery".into(), now() + 60_000)
+            .unwrap();
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/harnesses")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", token.bearer()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            json!([])
+        );
+    }
+
+    #[tokio::test]
     async fn live_openapi_requires_bearer_authentication_on_a_protected_instance() {
         let store = Store::default();
         let actor = Actor {

@@ -75,14 +75,21 @@ pub struct HostCatalog {
 #[serde(deny_unknown_fields)]
 pub struct ModelProfile {
     pub reference: Reference,
+    #[serde(default)]
     pub provider: String,
     pub model: String,
+    #[serde(default = "profile_endpoint")]
     pub endpoint: String,
     pub api_key_env: Option<String>,
     #[serde(default = "output_tokens")]
     pub max_output_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<crate::adapters::reasoning::Reasoning>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<crate::adapters::runtime_bridge::BridgeConfig>,
+}
+fn profile_endpoint() -> String {
+    "https://api.openai.com/v1/chat/completions".into()
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -391,12 +398,30 @@ impl HostCatalog {
     }
 }
 impl ModelProfile {
+    pub fn execution_descriptor(&self) -> crate::adapters::runtime_bridge::ExecutionDescriptor {
+        match &self.runtime {
+            Some(runtime) => runtime.descriptor(),
+            None => crate::adapters::runtime_bridge::ExecutionDescriptor::new(
+                if self.provider.is_empty() {
+                    "openai".into()
+                } else {
+                    self.provider.clone()
+                },
+                1,
+                "provider_http",
+                false,
+            ),
+        }
+    }
     fn apply(&self, mut value: Value) -> Value {
         value["provider"] = json!(self.provider);
         value["model"] = json!(self.model);
         value["endpoint"] = json!(self.endpoint);
         value["api_key_env"] = json!(self.api_key_env);
         value["max_output_tokens"] = json!(self.max_output_tokens);
+        if let Some(runtime) = &self.runtime {
+            value["runtime"] = json!(runtime);
+        }
         if let Some(reasoning) = &self.reasoning {
             value["reasoning"] = json!(reasoning);
         }

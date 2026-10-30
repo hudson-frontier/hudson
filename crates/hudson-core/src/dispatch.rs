@@ -164,10 +164,19 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
 
         // The store lock is released before any external execution.
         let result = match &operation.request {
-            OperationRequest::Model { request } => self
-                .model
-                .call(request)
-                .map(|response| OperationResult::Model { response }),
+            OperationRequest::Model { request } => {
+                let store = &self.store;
+                self.model
+                    .call_controlled(request, &|| {
+                        store
+                            .read(|data| {
+                                let run = data.run(actor, run_id)?;
+                                Ok(run.status.terminal() || run.status == RunStatus::Cancelling)
+                            })
+                            .unwrap_or(true)
+                    })
+                    .map(|response| OperationResult::Model { response })
+            }
             OperationRequest::Tool { call, .. } => self
                 .tools
                 .execute(Invocation {

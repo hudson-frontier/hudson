@@ -452,6 +452,20 @@ fn assemble(
         _ => None,
     };
     let publishing = catalog.is_some();
+    let execution_catalog = match &driver {
+        Driver::Configured(tree, _) => tree.execution_catalog.clone(),
+        Driver::Published(catalog, _) => {
+            let mut entries = Vec::new();
+            for model in &catalog.models {
+                let entry = model.execution_descriptor();
+                if !entries.contains(&entry) {
+                    entries.push(entry);
+                }
+            }
+            entries
+        }
+        Driver::Demo(_) => Vec::new(),
+    };
     let app = App {
         catalog,
         schedule,
@@ -506,6 +520,10 @@ fn assemble(
         .route(
             "/health",
             get(move || async move { Json(json!({"mode":mode,"durable":durable})) }),
+        )
+        .route(
+            "/harnesses",
+            get(move || async move { Json(execution_catalog) }),
         )
         .route("/runs", post(submit))
         .route("/runs/{id}", get(inspect))
@@ -760,6 +778,10 @@ mod tests {
             "#/components/schemas/PublishedSubmission"
         );
         request(&app, "GET", "/capabilities", Value::Null).await;
+        let (_, harnesses) = request(&app, "GET", "/harnesses", Value::Null).await;
+        assert_eq!(harnesses[0]["id"], "openai");
+        assert_eq!(harnesses[0]["capabilities"]["streaming"], false);
+        assert!(!harnesses.to_string().contains("127.0.0.1"));
         request(&app,"POST","/tools",json!({"request_key":"tool","tool":{"name":"lookup","version":1,"description":"lookup","connection":{"id":"crm","version":1},"input_schema":{"type":"object"}}})).await;
         request(&app, "GET", "/tools/lookup/versions/1", Value::Null).await;
         let (status, receipt) = request(&app,"POST","/agents",json!({"request_key":"agent","agent":{"name":"assistant","version":1,"instructions":"help","model_profile":{"id":"standard","version":1},"tools":[{"id":"lookup","version":1}]}})).await;

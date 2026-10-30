@@ -82,6 +82,8 @@ a supplied task or run ID; it is not a distributed queue consumer.
 
 The [harness controls guide](harness-controls.md) covers durable steering,
 follow-ups, context headroom, and provider reasoning settings.
+The [execution adapter guide](execution-adapters.md) describes operator-owned
+HTTP/stdio SDK bridges, capability discovery and their lifecycle limits.
 
 External schema references are disabled. Literal values in `const`, `enum`, and
 annotations can contain keys such as `$ref`; those values remain data. References

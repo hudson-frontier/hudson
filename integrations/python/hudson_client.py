@@ -145,6 +145,9 @@ class HudsonClient:
     def health(self):
         return self._request('GET', '/health')
 
+    def harnesses(self):
+        return self._request('GET', '/harnesses')
+
     def capabilities(self):
         return self._request('GET', '/capabilities')
 

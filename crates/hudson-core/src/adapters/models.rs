@@ -12,6 +12,21 @@ pub trait ModelExecutor: Send {
         None
     }
     fn call(&mut self, request: &ModelRequest) -> Result<ModelResponse, ExecutionError>;
+    /// Called on the host's blocking driver. Adapters with interruptible IO poll
+    /// this control between bounded waits; existing executors keep their behavior.
+    fn call_controlled(
+        &mut self,
+        request: &ModelRequest,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<ModelResponse, ExecutionError> {
+        self.take_usage();
+        if cancelled() {
+            return Err(ExecutionError::Failed(
+                "model call cancelled before dispatch".into(),
+            ));
+        }
+        self.call(request)
+    }
 }
 
 impl<T: ModelExecutor + ?Sized> ModelExecutor for Box<T> {
@@ -23,5 +38,12 @@ impl<T: ModelExecutor + ?Sized> ModelExecutor for Box<T> {
     }
     fn call(&mut self, request: &ModelRequest) -> Result<ModelResponse, ExecutionError> {
         (**self).call(request)
+    }
+    fn call_controlled(
+        &mut self,
+        request: &ModelRequest,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<ModelResponse, ExecutionError> {
+        (**self).call_controlled(request, cancelled)
     }
 }

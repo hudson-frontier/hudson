@@ -113,7 +113,20 @@ impl<M: crate::adapters::models::ModelExecutor> crate::adapters::models::ModelEx
         request: &hudson_harness::ModelRequest,
     ) -> std::result::Result<hudson_harness::ModelResponse, crate::adapters::tools::ExecutionError>
     {
+        self.call_controlled(request, &|| false)
+    }
+    fn call_controlled(
+        &mut self,
+        request: &hudson_harness::ModelRequest,
+        cancelled: &dyn Fn() -> bool,
+    ) -> std::result::Result<hudson_harness::ModelResponse, crate::adapters::tools::ExecutionError>
+    {
         self.inner.take_usage();
+        if cancelled() {
+            return Err(crate::adapters::tools::ExecutionError::Failed(
+                "model call cancelled before admission".into(),
+            ));
+        }
         self.store
             .transact(|d| {
                 let budget = d
@@ -133,6 +146,6 @@ impl<M: crate::adapters::models::ModelExecutor> crate::adapters::models::ModelEx
             })?;
         // Charge admission, even if the provider fails: an uncertain request may
         // have consumed tokens. Never refund automatically or reset on restart.
-        self.inner.call(request)
+        self.inner.call_controlled(request, cancelled)
     }
 }

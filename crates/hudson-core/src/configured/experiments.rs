@@ -47,6 +47,7 @@ impl Configuration {
                 .is_none_or(|model| model.trim().is_empty())
             || !fixture_endpoint(&d.endpoint)
             || d.api_key_env.is_some()
+            || d.runtime.is_some()
             || (!allow_budget && d.shared_model_budget.is_some())
             || (allow_budget
                 && d.shared_model_budget

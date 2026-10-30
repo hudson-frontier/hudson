@@ -947,6 +947,44 @@
         ],
         "description": "Messages and keys are scoped to the actor-owned run. Steering takes priority and one message is consumed per complete boundary. Follow-ups wait for a verified answer. Limits: 16 pending messages, 64 KiB including queue metadata, and 128 lifetime keys per run. Queue controls do not approve tools, answer saved questions, reconcile uncertainty, or resume execution. Exact replay remains valid after consumption or withdrawal."
       }
+    },
+    "/harnesses": {
+      "get": {
+        "operationId": "harnesses",
+        "summary": "List configured execution adapters and their common controls",
+        "description": "Declarations only; no credentials, endpoints, executable paths or vendor acceptance claims. Fixture mode returns an empty array. Uses the same host authentication as other routes.",
+        "responses": {
+          "200": {
+            "description": "Configured execution adapters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "items": {
+                    "$ref": "#/components/schemas/ExecutionDescriptor"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2177,6 +2215,81 @@
           "cleared"
         ],
         "additionalProperties": false
+      },
+      "ExecutionDescriptor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "transport",
+          "capabilities"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "provider_http",
+              "http_bridge",
+              "stdio_bridge"
+            ]
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tools",
+              "approvals",
+              "resume",
+              "follow_up",
+              "steering",
+              "subagents",
+              "interrupt",
+              "streaming",
+              "images",
+              "native_sessions"
+            ],
+            "properties": {
+              "tools": {
+                "type": "boolean"
+              },
+              "approvals": {
+                "type": "boolean"
+              },
+              "resume": {
+                "type": "boolean"
+              },
+              "follow_up": {
+                "type": "boolean"
+              },
+              "steering": {
+                "type": "boolean"
+              },
+              "subagents": {
+                "type": "boolean"
+              },
+              "interrupt": {
+                "type": "boolean"
+              },
+              "streaming": {
+                "type": "boolean"
+              },
+              "images": {
+                "type": "boolean"
+              },
+              "native_sessions": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
       }
     },
     "securitySchemes": {

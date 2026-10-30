@@ -12,6 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 pub const NANO_USD_PER_USD: u64 = 1_000_000_000;
+#[cfg(all(test, feature = "fixtures"))]
+mod tests;
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {

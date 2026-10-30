@@ -766,7 +766,8 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                     }
                     None
                 }
-                _ => return Err(Error::Denied),
+                OperationRequest::Model { .. } => return Err(Error::Denied),
+                _ => return Err(Error::Invalid("approval requires tool".into())),
             };
             operation
                 .approval

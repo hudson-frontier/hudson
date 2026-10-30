@@ -16,7 +16,6 @@ const MAX_BYTES: u64 = 64 * 1024 * 1024;
 #[derive(serde::Deserialize)]
 #[cfg(unix)]
 struct Saved {
-    #[cfg(unix)]
     schema_version: u32,
     state: Data,
 }
@@ -53,6 +52,7 @@ pub(super) struct LocalFile {
     #[cfg(unix)]
     name: OsString,
     data: Data,
+    #[cfg(unix)]
     schema_version: u32,
     unavailable: bool,
 }

@@ -119,6 +119,7 @@ jobs:
         run: |
           native="$(python -c 'import os,pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"])/"hudson-codex/node_modules"; found=list(root.glob("**/vendor/x86_64-unknown-linux-musl/bin/codex")); assert len(found)==1; print(found[0])')"
           python -I scripts/smoke_native_codex.py --codex "$native" --python "$(command -v python)" --worker "$GITHUB_WORKSPACE/target/debug/hudson-worker" --bubblewrap /usr/bin/bwrap
+          python -I scripts/smoke_native_accounts.py --codex "$native" --python "$(command -v python)"
 
   integration:
     name: Rust, PostgreSQL, and Temporal

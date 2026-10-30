@@ -10,6 +10,7 @@ use hudson_harness::{ModelRequest, ModelResponse};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::PathBuf, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+pub mod accounts;
 mod isolation;
 mod process;
 mod stream;

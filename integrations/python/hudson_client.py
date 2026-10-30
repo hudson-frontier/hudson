@@ -57,11 +57,34 @@ def _key(value):
     return value
 
 
+def _account_key(value):
+    value = _key(value)
+    if len(value.encode('utf-8')) > 128 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError('invalid account request key')
+    return value
+
+
 def _reject_constant(_):
     raise ValueError('nonstandard JSON constant')
 
 
 class HudsonClient:
+    def accounts(self):
+        return self._request('GET', '/accounts')
+
+    def open_account_session(self, account_id, *, request_key):
+        return self._request('POST', f'/accounts/{_name(account_id)}/sessions',
+                             {'request_key': _account_key(request_key)})
+
+    def account_action(self, session_id, action, *, request_key):
+        if action not in ('status', 'login', 'renew', 'cancel_login', 'logout', 'models'):
+            raise ValueError('invalid account action')
+        return self._request('POST', f'/account-sessions/{_id(session_id)}/actions',
+                             {'action': action, 'request_key': _account_key(request_key)})
+
+    def close_account_session(self, session_id):
+        return self._request('DELETE', f'/account-sessions/{_id(session_id)}')
+
     def __init__(self, url='http://127.0.0.1:4318', *, token=None,
                  token_env=None, timeout=15, max_response_bytes=8 * 1024 * 1024):
         try:

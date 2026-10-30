@@ -84,6 +84,47 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
+    async fn account_controls_require_the_hosts_exact_actor_credential() {
+        let store = Store::default();
+        let actor = hudson_core::fixtures::actor();
+        let own = store
+            .issue_api_token(actor.clone(), "account controls".into(), now() + 60_000)
+            .unwrap();
+        let mut other = actor.clone();
+        other.id = "other".into();
+        let foreign = store
+            .issue_api_token(other, "other".into(), now() + 60_000)
+            .unwrap();
+        let app = protect(crate::routes::router().unwrap(), store, actor);
+        for token in [None, Some(foreign.bearer()), Some(own.bearer())] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/accounts/native/sessions")
+                .header("Content-Type", "application/json");
+            if let Some(token) = token {
+                request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+            }
+            let response = app
+                .clone()
+                .oneshot(
+                    request
+                        .body(Body::from(r#"{"request_key":"session"}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                match token {
+                    None => StatusCode::UNAUTHORIZED,
+                    Some(token) if token == foreign.bearer() => StatusCode::FORBIDDEN,
+                    _ => StatusCode::NOT_FOUND,
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn harness_discovery_uses_the_host_authentication_gate() {
         let store = Store::default();
         let actor = hudson_core::fixtures::actor();

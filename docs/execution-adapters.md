@@ -1,5 +1,8 @@
 # Execution adapters
 
+Explicit installed-version readiness, native model discovery and bounded account
+login/renewal controls are described in [runtime accounts](runtime-accounts.md).
+
 The bundled [native CLI peer](../integrations/codex/README.md) adds installed
 Codex app-server execution and native rollout continuation. See the
 [conformance matrix](runtime-conformance.md) for installed-runtime evidence and

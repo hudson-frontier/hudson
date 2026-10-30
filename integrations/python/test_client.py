@@ -15,6 +15,26 @@ TOKEN = 'private-test-token'
 
 
 class ClientTests(unittest.TestCase):
+    def test_account_lifecycle_actions_are_explicit_and_do_not_accept_credentials(self):
+        self.respond = lambda *_: (200, {}, {})
+        self.client.accounts()
+        self.client.open_account_session('native', request_key='session')
+        self.client.account_action(RUN, 'status', request_key='read')
+        self.client.account_action(RUN, 'login', request_key='login')
+        self.client.account_action(RUN, 'renew', request_key='renew')
+        self.client.close_account_session(RUN)
+        self.assertEqual([(method,path) for method,path,_,_ in self.requests], [
+            ('GET','/accounts'), ('POST','/accounts/native/sessions'),
+            ('POST',f'/account-sessions/{RUN}/actions'),
+            ('POST',f'/account-sessions/{RUN}/actions'),
+            ('POST',f'/account-sessions/{RUN}/actions'), ('DELETE',f'/account-sessions/{RUN}')])
+        with self.assertRaises(ValueError): self.client.account_action(RUN,'api_key',request_key='key')
+        count=len(self.requests)
+        for key in ('x'*129,'control\nkey'):
+            with self.assertRaises(ValueError): self.client.open_account_session('native',request_key=key)
+            with self.assertRaises(ValueError): self.client.account_action(RUN,'status',request_key=key)
+        self.assertEqual(len(self.requests),count)
+
     def test_harness_discovery_is_a_read_only_catalog_request(self):
         self.respond = lambda *_: (200, [{'id': 'fixture', 'version': 1}], {})
         self.assertEqual(self.client.harnesses(), [{'id': 'fixture', 'version': 1}])

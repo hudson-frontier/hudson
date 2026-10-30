@@ -1392,6 +1392,195 @@
           }
         }
       }
+    },
+    "/accounts": {
+      "get": {
+        "operationId": "accounts",
+        "summary": "List installation-owned account controls without starting a process",
+        "responses": {
+          "200": {
+            "description": "Success. Sensitive account control data is transient; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccountDescriptor"
+                  },
+                  "maxItems": 32
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{id}/sessions": {
+      "post": {
+        "operationId": "openAccountSession",
+        "summary": "Open a bounded transient account control session",
+        "responses": {
+          "200": {
+            "description": "Success. Sensitive account control data is transient; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAccountSession"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/account-sessions/{id}/actions": {
+      "post": {
+        "operationId": "accountAction",
+        "summary": "Explicit status, login, renewal, cancellation, logout or model discovery",
+        "responses": {
+          "200": {
+            "description": "Success. Sensitive account control data is transient; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOutcome"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountAction"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/account-sessions/{id}": {
+      "delete": {
+        "operationId": "closeAccountSession",
+        "summary": "Close the transient account control process tree",
+        "responses": {
+          "200": {
+            "description": "Success. Sensitive account control data is transient; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosedAccountSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -3369,6 +3558,253 @@
         ],
         "additionalProperties": false,
         "description": "Actor-owned model allocation records. Priced usage uses reported tokens and pinned operator rates. Missing reports retain allocations. Empty entries with enabled=false indicate unavailable pricing, not zero provider consumption."
+      },
+      "AccountDescriptor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "runtime_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lifetime_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "status",
+                "models",
+                "login",
+                "renew",
+                "cancel_login",
+                "logout"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 6,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id",
+          "runtime_id",
+          "runtime_version",
+          "lifetime_seconds",
+          "actions"
+        ],
+        "additionalProperties": false
+      },
+      "AccountSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "expires_at": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "account_id",
+          "expires_at"
+        ],
+        "additionalProperties": false
+      },
+      "OpenAccountSession": {
+        "type": "object",
+        "properties": {
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "request_key"
+        ],
+        "additionalProperties": false
+      },
+      "AccountAction": {
+        "type": "object",
+        "properties": {
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "login",
+              "renew",
+              "cancel_login",
+              "logout",
+              "models"
+            ]
+          }
+        },
+        "required": [
+          "request_key",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "AccountStatus": {
+        "type": "object",
+        "properties": {
+          "expected_version": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "installed_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "protocol_ready": {
+            "type": "boolean"
+          },
+          "credential": {
+            "type": "string",
+            "enum": [
+              "required",
+              "configured",
+              "not_required",
+              "unknown"
+            ]
+          },
+          "login": {
+            "type": "string",
+            "enum": [
+              "none",
+              "pending",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          }
+        },
+        "required": [
+          "expected_version",
+          "installed_version",
+          "protocol_ready",
+          "credential",
+          "login"
+        ],
+        "additionalProperties": false
+      },
+      "AccountOutcome": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "status"
+              },
+              "status": {
+                "$ref": "#/components/schemas/AccountStatus"
+              }
+            },
+            "required": [
+              "type",
+              "status"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "login"
+              },
+              "authorization_url": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "type",
+              "authorization_url"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "enum": [
+                  "cancelled",
+                  "logged_out",
+                  "unsupported"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "models"
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "maxItems": 128
+              }
+            },
+            "required": [
+              "type",
+              "models"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ClosedAccountSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "closed": {
+            "const": true
+          }
+        },
+        "required": [
+          "id",
+          "closed"
+        ],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

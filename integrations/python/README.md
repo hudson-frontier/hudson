@@ -1,5 +1,10 @@
 # Local Python client
 
+`accounts()`, `open_account_session()`, `account_action()` and
+`close_account_session()` expose explicitly configured native account controls.
+Sessions and login challenges are transient; no method changes a run's execution
+binding. See [account lifecycle and readiness](../../docs/runtime-accounts.md).
+
 `run_spend(run_id)` and `operation_spend(operation_id)` read configured model
 allocations and priced/unknown outcomes. Amounts use decimal strings in nano USD;
 missing usage stays `None`. Inspect a model-spend quote before using the normal

@@ -25,6 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use uuid::Uuid;
+mod accounts;
 mod conversations;
 mod event_stream;
 mod images;
@@ -80,6 +81,7 @@ struct App {
     stream_slots: Arc<tokio::sync::Semaphore>,
     stream_reads: Arc<tokio::sync::Semaphore>,
     import_slots: Arc<tokio::sync::Semaphore>,
+    account_sessions: accounts::Sessions,
 }
 struct ApiError(Error);
 impl From<Error> for ApiError {
@@ -487,6 +489,7 @@ fn assemble(
         Driver::Demo(_) => Vec::new(),
     };
     let app = App {
+        account_sessions: Default::default(),
         stream_slots: Arc::new(tokio::sync::Semaphore::new(32)),
         stream_reads: Arc::new(tokio::sync::Semaphore::new(32)),
         import_slots: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -556,6 +559,13 @@ fn assemble(
         .route(
             "/harnesses",
             get(move || async move { Json(execution_catalog) }),
+        )
+        .route("/accounts", get(accounts::catalog))
+        .route("/accounts/{id}/sessions", post(accounts::open))
+        .route("/account-sessions/{id}/actions", post(accounts::action))
+        .route(
+            "/account-sessions/{id}",
+            axum::routing::delete(accounts::close),
         )
         .route("/runs", post(submit))
         .route(
@@ -794,7 +804,12 @@ mod tests {
             serde_json::from_str(include_str!("../../../docs/openapi.json")).unwrap();
         let raw_path = path.split('?').next().unwrap();
         let mut segments = raw_path.split('/').collect::<Vec<_>>();
-        if segments.len() >= 3 && matches!(segments[1], "runs" | "operations") {
+        if segments.len() >= 3
+            && matches!(
+                segments[1],
+                "runs" | "operations" | "accounts" | "account-sessions"
+            )
+        {
             segments[2] = "{id}";
         }
         if segments.len() == 5 && matches!(segments[1], "agents" | "tools") {
@@ -830,6 +845,52 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
         panic!("run did not reach {status}");
+    }
+
+    #[tokio::test]
+    async fn account_catalog_and_transient_sessions_are_explicit_and_private() {
+        let app=tokio::task::spawn_blocking(|| {
+            let actor=fixtures::actor();
+            let executable=if cfg!(windows) { "C:/missing-account-peer.exe" } else { "/missing-account-peer" };
+            let cwd=std::env::current_dir().unwrap();
+            let catalog=serde_json::from_value(json!({"owner":actor,
+                "models":[{"reference":{"id":"standard","version":1},"provider":"openai","model":"fixture","api_key_env":"HUDSON_MISSING_ACCOUNT_KEY"}],
+                "accounts":[{"id":"native","runtime_id":"fixture","runtime_version":1,
+                    "transport":{"type":"stdio","executable":executable,"args":[],"cwd":cwd,"env":[]}}]})).unwrap();
+            published(Store::default(),actor,hudson_core::scheduling::ScheduleTarget { scheduler:"temporal:test".into(),task_queue:"queue".into() },catalog).unwrap()
+        }).await.unwrap();
+        let (_, catalog) = request(&app, "GET", "/accounts", Value::Null).await;
+        assert_eq!(catalog[0]["id"], "native");
+        assert!(!catalog.to_string().contains("missing-account"));
+        let (status, session) = request(
+            &app,
+            "POST",
+            "/accounts/native/sessions",
+            json!({"request_key":"open"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let path = format!("/account-sessions/{}", session["id"].as_str().unwrap());
+        let (status, _) = request(
+            &app,
+            "POST",
+            &format!("{path}/actions"),
+            json!({"request_key":"status","action":"status"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = request(&app, "DELETE", &path, Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = request(
+            &app,
+            "POST",
+            "/accounts/unconfigured/sessions",
+            json!({"request_key":"open-other"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = request(&router().unwrap(), "GET", "/accounts", Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]

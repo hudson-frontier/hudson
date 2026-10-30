@@ -82,7 +82,11 @@ python -I scripts/smoke_native_codex.py --codex /absolute/codex --python /absolu
 
 The separate CI job checks native file continuation/fork, actor separation,
 cached replay, one provider request per attempt and the actual isolated worker
-with one host-owned HTTP tool. No paid requests are made. Account login flows,
+with one host-owned HTTP tool. No paid requests are made. Account-backed model execution,
 arbitrary external native-file imports, active-turn vendor steering and other
 CLI/ACP families require further integrations. Native built-in command execution
 is not enabled by this peer; use explicitly registered host tools.
+
+The separate [account control peer](../../docs/runtime-accounts.md) provides
+bounded live browser-login, renewal, cancellation/logout and readiness/model
+discovery. Account control does not switch this execution peer to account auth.

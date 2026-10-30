@@ -57,6 +57,11 @@ Inspect installation status without provider calls:
 The result includes package version, availability and credential presence, with
 no credential value. This is package readiness, not a live model acceptance test.
 
+The [account control protocol](../../docs/runtime-accounts.md) also exposes that
+local check through `accounts.py`. Configure `optional_env: ["OPENAI_API_KEY"]`
+so a missing key reports `required`. API-key login/renewal and remote model
+listing are explicitly unsupported by this SDK readiness peer.
+
 Run the actual SDK/worker conformance fixture after building the worker:
 
 ```sh

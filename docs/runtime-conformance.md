@@ -17,6 +17,13 @@ Responses API events, not paid acceptance of a model or subscription account.
 Provider credentials remain outside native checkpoints. Windows protocol and
 RPC fixtures do not establish Windows checkpoint-peer support.
 
+The separate [account control protocol](runtime-accounts.md) has bounded
+actor/session, retry, readiness, model-discovery and login/cancel/logout fixtures.
+Its installed-executable smoke checks unauthenticated account status, explicit
+renewal/logout and the unauthenticated discovery gate. Interactive browser login,
+authenticated renewal and account-backed model execution require separate live
+acceptance; local package/credential presence does not establish those results.
+
 The [SDK guide](../integrations/agent_sdk/README.md),
 [native CLI guide](../integrations/codex/README.md) and
 [isolation guide](runtime-isolation.md) record setup, bounds and recovery limits.

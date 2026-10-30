@@ -64,6 +64,8 @@ fn output_tokens() -> u32 {
 pub struct HostCatalog {
     pub owner: Actor,
     pub models: Vec<ModelProfile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<crate::adapters::runtime_bridge::accounts::AccountConfig>,
     #[serde(default)]
     pub connections: Vec<ToolConnection>,
     #[serde(default)]
@@ -222,12 +224,28 @@ impl HostCatalog {
         self.limits.validate()?;
         if self.models.is_empty()
             || self.models.len() > 32
+            || self.accounts.len() > 32
             || self.connections.len() > 256
             || self.max_total_model_calls == 0
         {
             return Err(Error::Invalid("invalid host capability limits".into()));
         }
         let mut entries = Vec::new();
+        let mut account_ids = std::collections::BTreeSet::new();
+        for account in &self.accounts {
+            account.validate()?;
+            if !account_ids.insert(&account.id) {
+                return Err(Error::Invalid("duplicate account control identity".into()));
+            }
+            entries.push((
+                "account",
+                Reference {
+                    id: account.id.clone(),
+                    version: account.runtime_version,
+                },
+                serde_json::to_value(account)?,
+            ));
+        }
         for model in &self.models {
             model.reference.validate()?;
             let definition = model.apply(
@@ -776,6 +794,36 @@ mod tests {
         let mut value = serde_json::to_value(agent()).unwrap();
         value["subagents"] = json!([{"name":"child","version":1,"instructions":"help","model_profile":{"id":"standard","version":1},"endpoint":"http://attacker"}]);
         assert!(serde_json::from_value::<AgentDefinition>(value).is_err());
+    }
+
+    #[test]
+    fn account_controls_are_offline_owner_bound_and_immutable() {
+        let store = Store::default();
+        let mut catalog = catalog();
+        let executable = if cfg!(windows) {
+            "C:/missing-account-peer.exe"
+        } else {
+            "/missing-account-peer"
+        };
+        catalog.accounts=serde_json::from_value(json!([{"id":"native","runtime_id":"fixture","runtime_version":1,
+            "transport":{"type":"stdio","executable":executable,"cwd":std::env::current_dir().unwrap(),"env":["HUDSON_MISSING_ACCOUNT_SECRET"]}}])).unwrap();
+        let actor = catalog.owner.clone();
+        catalog.install(&store, &actor).unwrap();
+        let before = snapshot(&store);
+        let mut changed = catalog.clone();
+        changed.accounts[0].lifetime_seconds = 60;
+        assert!(changed.install(&store, &actor).is_err());
+        assert_eq!(before, snapshot(&store));
+        changed.accounts[0].runtime_version = 2;
+        changed.install(&store, &actor).unwrap();
+        let mut duplicate = catalog.clone();
+        duplicate.accounts.push(catalog.accounts[0].clone());
+        assert!(duplicate.install(&store, &actor).is_err());
+        let other = Actor {
+            id: "other".into(),
+            ..actor
+        };
+        assert!(catalog.install(&store, &other).is_err());
     }
 
     #[test]

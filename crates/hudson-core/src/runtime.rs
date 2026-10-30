@@ -26,6 +26,7 @@ pub(crate) enum SubmissionScope {
         Option<Uuid>,
         Option<crate::scheduling::ScheduleTarget>,
     ),
+    Images(Vec<hudson_harness::images::Image>, Box<SubmissionScope>),
 }
 
 impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
@@ -81,6 +82,17 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         turn: crate::conversations::ImportedTurn,
         schedule: Option<crate::scheduling::ScheduleTarget>,
     ) -> Result<Uuid> {
+        self.import_turn_with_images(actor, agent, turn, Vec::new(), schedule)
+    }
+
+    pub fn import_turn_with_images(
+        &self,
+        actor: &Actor,
+        agent: VersionRef,
+        turn: crate::conversations::ImportedTurn,
+        images: Vec<hudson_harness::images::Image>,
+        schedule: Option<crate::scheduling::ScheduleTarget>,
+    ) -> Result<Uuid> {
         turn.transcript
             .validate(crate::conversations::MAX_TRANSCRIPT_BYTES)?;
         self.submit_scoped(
@@ -89,7 +101,36 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             turn.input,
             Some(turn.request_key),
             turn.goal,
-            SubmissionScope::Transfer(turn.transcript, turn.source_run, schedule),
+            SubmissionScope::Images(
+                images,
+                Box::new(SubmissionScope::Transfer(
+                    turn.transcript,
+                    turn.source_run,
+                    schedule,
+                )),
+            ),
+        )
+    }
+
+    pub fn submit_images(
+        &self,
+        actor: &Actor,
+        agent: VersionRef,
+        turn: crate::multimodal::ImageTurn,
+        schedule: Option<crate::scheduling::ScheduleTarget>,
+    ) -> Result<Uuid> {
+        if turn.images.is_empty() {
+            return Err(Error::Invalid(
+                "image submission requires at least one image".into(),
+            ));
+        }
+        self.submit_scoped(
+            actor,
+            agent,
+            turn.input,
+            Some(turn.request_key),
+            turn.goal,
+            SubmissionScope::Images(turn.images, Box::new(SubmissionScope::Scheduled(schedule))),
         )
     }
 
@@ -133,12 +174,20 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         goal: Option<Goal>,
         scope: SubmissionScope,
     ) -> Result<Uuid> {
+        let (images, scope) = match scope {
+            SubmissionScope::Images(images, scope) => (images, *scope),
+            scope => (Vec::new(), scope),
+        };
+        crate::multimodal::validate_turn(&images)?;
         let (schedule, experiment, previous, transcript, source_run) = match scope {
             SubmissionScope::Scheduled(schedule) => (schedule, None, None, None, None),
             SubmissionScope::Experiment(scope) => (None, Some(scope), None, None, None),
             SubmissionScope::Conversation(previous) => (None, None, Some(previous), None, None),
             SubmissionScope::Transfer(transcript, source, schedule) => {
                 (schedule, None, None, Some(transcript), source)
+            }
+            SubmissionScope::Images(..) => {
+                return Err(Error::Invalid("nested image submission scope".into()))
             }
         };
         if let Some(target) = &schedule {
@@ -180,6 +229,11 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 (None, None) => definitions::digest(&(agent_ref.clone(), &input))?,
             }
         };
+        let input_digest = if images.is_empty() {
+            input_digest
+        } else {
+            definitions::digest(&("image-turn-v1", input_digest, &images))?
+        };
         self.store.transact(|d| {
             if let Some(scope) = &experiment {
                 crate::experiments::check_scope(d, actor, scope)?;
@@ -211,6 +265,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 .get(&(actor.workspace_id.clone(), agent_ref.clone()))
                 .ok_or(Error::NotFound)?;
             bounded(&input, agent.limits.max_payload_bytes)?;
+            if !images.is_empty() {bounded(&(&input,&images),agent.limits.max_payload_bytes)?;}
             bounded(&goal, agent.limits.max_payload_bytes)?;
             if let Some(schema) = &agent.input_schema {
                 definitions::validate(schema, &input)?;
@@ -218,6 +273,9 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             let meta = Metadata::new(&actor.workspace_id);
             let id = meta.id;
             let mut initial = self.engine.initial_state();
+            if !images.is_empty() && (initial.backend!="hudson" || initial.backend_version!=1) {
+                return Err(Error::Unsupported("typed image input requires the Hudson backend".into()));
+            }
             if let Some(transcript)=&transcript {
                 if let Some(source)=source_run {
                     if crate::conversations::export(d,actor,source)? != *transcript {
@@ -259,7 +317,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 wait: None,
                 state: initial,
                 pending_operations: vec![],
-                next_input: Some(Input::Start { value: input }),
+                next_input: Some(if images.is_empty() {Input::Start {value:input}} else {Input::StartImages {value:input,images}}),
                 limits: agent.limits.clone(),
                 usage: Usage::default(),
                 result: None,

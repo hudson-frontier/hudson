@@ -54,8 +54,13 @@ actor-owned run. Use `fork(run_id, input, request_key=...)` for a local source o
 `import_conversation(transcript, input, request_key=...)` for explicit transfer.
 Published hosts also require the target `agent_ref`. The new task gets fresh
 limits, usage and policy checks; earlier tool calls are never replayed. Import
-has a separate 5 MiB request ceiling; other methods retain 64 KiB. See
+has a separate 5 MiB request ceiling; image-bearing forks use that ceiling too. See
 [format and ownership rules](../../docs/conversations.md).
+
+`start_images(input, images, request_key=...)` sends explicit inline PNG/JPEG/WebP
+attachments. Each entry contains `media_type` and standard base64 `data`; no
+paths or URLs are resolved. Fork/import accept optional `images=` for the new
+turn. See [image limits and a bounded file-reading example](../../docs/images.md).
 
 `queue_message(run_id, value, kind='steer', request_key='direction-1')` adds user
 direction at the next complete boundary. Use `kind='follow_up'` to wait for a
@@ -65,7 +70,8 @@ after consumption or withdrawal. Queue controls never approve, answer a saved
 question, or resume execution. See [limits and ordering](../../docs/harness-controls.md).
 
 All requests time out (default 15 seconds; maximum 60). Encoded request bodies
-are capped at 64 KiB; responses default to 8 MiB and can be bounded lower.
+are capped at 64 KiB except the explicit 5 MiB transfer/image methods; responses
+default to 8 MiB and can be bounded lower.
 Event pages contain 1–1000 events. Observation has explicit total page/poll
 budgets and bounded poll intervals. Exhaustion reports the last processed
 cursor. HTTP and transport failures stop observation, preserving previously

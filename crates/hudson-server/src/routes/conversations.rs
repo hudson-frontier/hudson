@@ -9,7 +9,7 @@ pub(super) async fn gate(
 ) -> Response {
     let Ok(permit) = slots.try_acquire_owned() else {
         return ApiError(Error::Conflict(
-            "conversation import concurrency limit reached".into(),
+            "large request concurrency limit reached".into(),
         ))
         .into_response();
     };
@@ -17,7 +17,7 @@ pub(super) async fn gate(
     match tokio::time::timeout(std::time::Duration::from_secs(30), next.run(request)).await {
         Ok(response) => response,
         Err(_) => ApiError(Error::Conflict(
-            "conversation import timed out; retain the request key before retrying".into(),
+            "request timed out; retain the request key before retrying".into(),
         ))
         .into_response(),
     }
@@ -30,6 +30,8 @@ pub(super) struct Import {
     input: Value,
     request_key: String,
     transcript: Transcript,
+    #[serde(default)]
+    images: Vec<hudson_core::multimodal::Image>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,6 +39,8 @@ pub(super) struct Fork {
     agent_ref: Option<hudson_core::customer::Reference>,
     input: Value,
     request_key: String,
+    #[serde(default)]
+    images: Vec<hudson_core::multimodal::Image>,
 }
 pub(super) async fn export(
     State(app): State<App>,
@@ -66,10 +70,11 @@ fn import(
         let reference = body
             .agent_ref
             .ok_or_else(|| ApiError(Error::Invalid("agent_ref is required".into())))?;
-        app.store.import_published_turn(
+        app.store.import_published_turn_with_images(
             &app.actor,
             &reference.version_ref(),
             turn,
+            body.images,
             app.schedule.clone().ok_or_else(unavailable)?,
         )?
     } else {
@@ -78,10 +83,11 @@ fn import(
                 "agent_ref requires published mode".into(),
             )));
         }
-        app.lock()?.import_turn(
+        app.lock()?.import_turn_with_images(
             &app.actor,
             app.agent.clone().ok_or_else(unavailable)?,
             turn,
+            body.images,
             app.schedule.clone(),
         )?
     };
@@ -101,10 +107,12 @@ pub(super) async fn import_turn(
 }
 pub(super) async fn fork(
     State(app): State<App>,
+    Extension(permit): Extension<Arc<tokio::sync::OwnedSemaphorePermit>>,
     Path(id): Path<Uuid>,
     Json(body): Json<Fork>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
+        let _permit = permit;
         let transcript = app.store.export_transcript(&app.actor, id)?;
         import(
             &app,
@@ -113,6 +121,7 @@ pub(super) async fn fork(
                 input: body.input,
                 request_key: body.request_key,
                 transcript,
+                images: body.images,
             },
             Some(id),
         )
@@ -222,6 +231,45 @@ mod tests {
         assert_eq!(
             store.events(&actor, imported, 0).unwrap()[0].payload["source_run"],
             Value::Null
+        );
+        let body = json!({"input":"image question","request_key":"image-once",
+            "images":[{"media_type":"image/png","data":"YQ=="}]});
+        let (status, receipt) = request(&app, "POST", "/runs/images", body.clone()).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(
+            request(&app, "POST", "/runs/images", body.clone()).await.1,
+            receipt
+        );
+        let image_run = Uuid::parse_str(receipt["run_id"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            store.inspect(&actor, image_run).unwrap().usage.model_calls,
+            0
+        );
+        assert!(store.operations(&actor, image_run).unwrap().is_empty());
+        let mut changed = body.clone();
+        changed["images"][0]["data"] = json!("Yg==");
+        assert_eq!(
+            request(&app, "POST", "/runs/images", changed).await.0,
+            StatusCode::CONFLICT
+        );
+        let mut invalid = body;
+        invalid["request_key"] = json!("bad-image");
+        invalid["images"][0]["data"] = json!("https://internal.invalid/private");
+        assert_eq!(
+            request(&app, "POST", "/runs/images", invalid).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        let protected = crate::auth::protect(app, store, actor);
+        assert_eq!(
+            request(
+                &protected,
+                "POST",
+                "/runs/images",
+                json!({"input":"unauthorized","images":[],"request_key":"unauthorized"})
+            )
+            .await
+            .0,
+            StatusCode::UNAUTHORIZED
         );
     }
 }

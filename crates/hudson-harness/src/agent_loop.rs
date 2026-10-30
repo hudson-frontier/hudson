@@ -77,6 +77,16 @@ impl Backend for AgentLoop {
                 });
                 request(config, &mut state, &mut queued)?
             }
+            (Phase::Start, Input::StartImages { value, images }) => {
+                crate::images::validate_turn(&images)?;
+                let mut content = vec![Content::Json { value }];
+                content.extend(images.into_iter().map(|image| Content::Image { image }));
+                state.history.messages.push(Message {
+                    role: Role::User,
+                    content,
+                });
+                request(config, &mut state, &mut queued)?
+            }
             (
                 Phase::Model,
                 Input::Model {

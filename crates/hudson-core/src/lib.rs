@@ -50,6 +50,7 @@ pub mod conversations;
 pub mod inbox;
 pub mod memory;
 mod model_events;
+pub mod multimodal;
 
 pub mod coordination;
 

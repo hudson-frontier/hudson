@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("calls require 1..=10000".into());
     }
     let mut model: Box<dyn ModelExecutor> = match args[0].as_str() {
-        "direct" => Box::new(ChatModel::new(&args[1], None, 32)?),
+        "direct" | "image" => Box::new(ChatModel::new(&args[1], None, 32)?),
         "bridge" | "stream" => Box::new(BridgeModel::new(
             BridgeConfig {
                 id: "benchmark".into(),
@@ -35,19 +35,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_request_bytes: 65536,
                 max_response_bytes: 65536,
                 stream: args[0] == "stream",
+                images: false,
             },
             32,
         )?),
-        _ => return Err("mode must be direct, bridge or stream".into()),
+        _ => return Err("mode must be direct, bridge, stream or image".into()),
     };
+    let mut content = vec![Content::Text {
+        text: "x".repeat(1024),
+    }];
+    let image_bytes = if args[0] == "image" {
+        2 * 1024 * 1024 / 3 * 3
+    } else {
+        0
+    };
+    if image_bytes != 0 {
+        content.push(Content::Image {
+            image: hudson_harness::images::Image {
+                media_type: "image/png".into(),
+                data: "QUFB".repeat(image_bytes / 3),
+            },
+        });
+    }
     let request = ModelRequest {
         instructions: "Return 42".into(),
         model: "offline-fixture".into(),
         messages: vec![Message {
             role: Role::User,
-            content: vec![Content::Text {
-                text: "x".repeat(1024),
-            }],
+            content,
         }],
         tools: vec![],
     };
@@ -65,8 +80,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     timings.sort_unstable();
     println!(
         "{}",
-        json!({"mode":args[0],"calls":calls,"input_text_bytes":1024,"p50_us":timings[(calls-1)/2],
+        json!({"mode":args[0],"calls":calls,"input_text_bytes":1024,"input_image_bytes":image_bytes,"peak_rss_kib":peak_rss(),"p50_us":timings[(calls-1)/2],
         "p95_us":timings[(calls-1)*95/100],"total_us":total})
     );
     Ok(())
+}
+
+fn peak_rss() -> Option<u64> {
+    use std::io::Read;
+    let mut status = String::new();
+    std::fs::File::open("/proc/self/status")
+        .ok()?
+        .take(16384)
+        .read_to_string(&mut status)
+        .ok()?;
+    status
+        .lines()
+        .find(|line| line.starts_with("VmHWM:"))?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
 }

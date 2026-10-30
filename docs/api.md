@@ -19,6 +19,7 @@ can be loaded at startup or published through authenticated catalog mode. Creden
 | --- | --- |
 | `GET /health` | Read configured/fixture mode and persistence status |
 | `POST /runs` | Submit JSON input to the root agent; optionally deduplicate with `request_key` |
+| `POST /runs/images` | Submit JSON task input with explicit bounded image attachments |
 | `GET /runs/{id}` | Read status, question/approval wait, usage and result |
 | `GET /runs/{id}/schedule` | Inspect durable scheduling publication evidence, without executing work |
 | `GET /runs/{id}/children` | Discover direct children and their statuses |
@@ -72,9 +73,9 @@ Only the final run result has passed normal verification. See the
 [execution adapter guide](execution-adapters.md#provisional-text-streaming) for
 frame formats, resource bounds and transport behavior.
 
-The conversation import endpoint has a separate 5 MiB body ceiling and four
-concurrent import slots; see [portable conversation transfer](conversations.md)
-for format and ownership rules. Other request bodies remain capped at 64 KiB.
+Image submission and conversation import/fork share four large-request slots and
+a 5 MiB body ceiling; see [portable conversation transfer](conversations.md) and
+[image input](images.md). Other request bodies remain capped at 64 KiB.
 Runtime errors use `{"error":"..."}`; malformed JSON,
 UUIDs, content types, and oversized bodies can receive plain-text framework
 errors. Handle status before decoding the body. Event payloads and run results

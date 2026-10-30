@@ -28,12 +28,15 @@ For explicit transfer between hosts, submit `POST /runs/import`:
 
 Import treats all supplied history as caller-provided context. It requires
 complete tool-call/result exchanges, rejects provider state and unresolved
-artifact references, and accepts text, JSON and portable tool exchanges. Each
+artifact references, and accepts text, JSON and portable tool exchanges. Image
+blocks use [transcript format version 2](images.md) in live user messages. Each
 transcript is capped at 4 MiB, 4096 combined messages, 128 archived exchanges,
 1024 blocks per message and 128 pending tool calls. The target's context ceiling
 also applies. The import HTTP body has a separate 5 MiB ceiling for the transcript
 and new input, at most four concurrent readers, and a 30-second request deadline.
-Its permit remains held by admitted database work after a client timeout.
+Fork/import may also include `images` for the new turn. Both use the 5 MiB body
+ceiling and share four large-request slots with `/runs/images`. Its permit
+remains held by admitted database work after a client timeout.
 Retain the exact retry key and body after an uncertain HTTP result.
 
 In published mode, fork/import requires `agent_ref` selecting an existing

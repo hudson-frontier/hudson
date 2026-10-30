@@ -233,6 +233,11 @@ fn extract(messages: &[Message], max: usize) -> Result<String> {
                     prefix(&serde_json::to_string(value)?, max / 3)
                 ),
                 Content::Artifact { id, .. } => format!("Artifact {id}"),
+                Content::Image { image } => format!(
+                    "Image {} ({} encoded bytes)",
+                    image.media_type,
+                    image.data.len()
+                ),
             });
         }
     }

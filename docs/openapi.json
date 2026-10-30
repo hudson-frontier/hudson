@@ -1158,7 +1158,7 @@
       "post": {
         "operationId": "importConversation",
         "summary": "Admit a new independent task from explicitly transferred context",
-        "description": "Published mode requires agent_ref; configured mode uses its root agent and rejects agent_ref. The target goal, limits, budget, policies and scheduling apply afresh. Forks verify the completed source inside admission. Import body ceiling is 5 MiB with four concurrency slots and a 30-second HTTP deadline; ordinary fork bodies retain 64 KiB.",
+        "description": "Start a fresh task with transferred context and optional inline images for the new turn. Published mode requires agent_ref; configured mode rejects it. Target goals, policies and budgets apply afresh. Image bytes bind the retry key. These endpoints share a 5 MiB body ceiling, four large-request slots and a 30-second HTTP deadline. Native credentials, approvals and operation evidence are never inherited.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1203,7 +1203,7 @@
       "post": {
         "operationId": "forkConversation",
         "summary": "Admit a new independent task from explicitly transferred context",
-        "description": "Published mode requires agent_ref; configured mode uses its root agent and rejects agent_ref. The target goal, limits, budget, policies and scheduling apply afresh. Forks verify the completed source inside admission. Import body ceiling is 5 MiB with four concurrency slots and a 30-second HTTP deadline; ordinary fork bodies retain 64 KiB.",
+        "description": "Start a fresh task with transferred context and optional inline images for the new turn. Published mode requires agent_ref; configured mode rejects it. Target goals, policies and budgets apply afresh. Image bytes bind the retry key. These endpoints share a 5 MiB body ceiling, four large-request slots and a 30-second HTTP deadline. Native credentials, approvals and operation evidence are never inherited.",
         "parameters": [
           {
             "name": "id",
@@ -1221,6 +1221,50 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ConversationFork"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunHandle"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/images": {
+      "post": {
+        "operationId": "submitImageRun",
+        "summary": "Submit JSON task input with explicit inline user images",
+        "description": "At most four images per new turn, 2 MiB decoded per image and 4 MiB combined encoded data per model request. Agent payload/context limits also apply. This 5 MiB endpoint shares four large-request slots and a 30-second request deadline with import/fork. Input schema validates the original JSON task. Image bytes participate in idempotency. No paths or URLs are resolved. Published mode requires agent_ref; configured mode rejects it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageSubmission"
               }
             }
           }
@@ -2696,6 +2740,22 @@
               "result"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "image"
+              },
+              "image": {
+                "$ref": "#/components/schemas/Image"
+              }
+            },
+            "required": [
+              "type",
+              "image"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -2728,7 +2788,10 @@
         "type": "object",
         "properties": {
           "format_version": {
-            "const": 1
+            "enum": [
+              1,
+              2
+            ]
           },
           "messages": {
             "type": "array",
@@ -2745,7 +2808,7 @@
               "type": "array",
               "maxItems": 4096,
               "items": {
-                "$ref": "#/components/schemas/PortableMessage"
+                "$ref": "#/components/schemas/PortableArchivedMessage"
               }
             }
           }
@@ -2755,7 +2818,43 @@
           "messages"
         ],
         "additionalProperties": false,
-        "description": "At most 4 MiB and 4096 combined messages, including archived exchanges. Complete tool exchanges only; no provider continuation metadata or unresolved artifact IDs. Archives are quoted evidence, not reconstructed absolute message positions."
+        "description": "At most 4 MiB and 4096 combined messages. Format 1 accepts text/JSON/tools; format 2 adds inline images in live user messages. Image-bearing exports use format 2. Complete tool exchanges only; provider state and unresolved artifact IDs are rejected. Archives retain quoted evidence, with images kept live.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "format_version": {
+                  "const": 1
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "messages": {
+                  "items": {
+                    "properties": {
+                      "content": {
+                        "not": {
+                          "contains": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "const": "image"
+                              }
+                            },
+                            "required": [
+                              "type"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "ConversationFork": {
         "type": "object",
@@ -2765,6 +2864,13 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
           }
         },
         "required": [
@@ -2784,6 +2890,13 @@
           },
           "transcript": {
             "$ref": "#/components/schemas/Transcript"
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
           }
         },
         "required": [
@@ -2804,6 +2917,13 @@
           },
           "agent_ref": {
             "$ref": "#/components/schemas/CustomerReference"
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
           }
         },
         "required": [
@@ -2827,12 +2947,236 @@
           },
           "transcript": {
             "$ref": "#/components/schemas/Transcript"
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            }
           }
         },
         "required": [
           "input",
           "request_key",
           "transcript",
+          "agent_ref"
+        ],
+        "additionalProperties": false
+      },
+      "Image": {
+        "type": "object",
+        "properties": {
+          "media_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "data": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 2796204,
+            "contentEncoding": "base64"
+          }
+        },
+        "required": [
+          "media_type",
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "Inline standard base64 only, at most 2 MiB decoded. No paths, URLs or provider file IDs. Hudson validates encoding and size; providers validate image format."
+      },
+      "PortableArchivedContent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "text"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "json"
+              },
+              "value": {}
+            },
+            "required": [
+              "type",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "tool_call"
+              },
+              "call": {
+                "$ref": "#/components/schemas/PortableToolCall"
+              }
+            },
+            "required": [
+              "type",
+              "call"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "tool_result"
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "call_id": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "const": "success"
+                          },
+                          "value": {}
+                        },
+                        "required": [
+                          "status",
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "const": "error"
+                          },
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status",
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "call_id",
+                  "outcome"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "result"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PortableArchivedMessage": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "enum": [
+              "user",
+              "assistant",
+              "tool"
+            ]
+          },
+          "content": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1024,
+            "items": {
+              "$ref": "#/components/schemas/PortableArchivedContent"
+            }
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "ImageSubmission": {
+        "type": "object",
+        "properties": {
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "input",
+          "request_key",
+          "images"
+        ],
+        "additionalProperties": false
+      },
+      "PublishedImageSubmission": {
+        "type": "object",
+        "properties": {
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            },
+            "minItems": 1
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/CustomerReference"
+          }
+        },
+        "required": [
+          "input",
+          "request_key",
+          "images",
           "agent_ref"
         ],
         "additionalProperties": false

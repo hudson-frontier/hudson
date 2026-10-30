@@ -20,6 +20,18 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.client.harnesses(), [{'id': 'fixture', 'version': 1}])
         self.assertEqual([(method, path) for method, path, _, _ in self.requests], [('GET', '/harnesses')])
 
+    def test_explicit_image_input_is_sent_as_data_without_path_or_url_resolution(self):
+        images = [{'media_type': 'image/png', 'data': 'YQ=='}]
+        self.client.start_images('question', images, request_key='image-one')
+        self.client.fork(RUN, 'follow-up', request_key='fork-image', images=images)
+        transcript = {'format_version': 2, 'messages': [{'role': 'user', 'content': [
+            {'type': 'image', 'image': images[0]}]}]}
+        self.client.import_conversation(transcript, 'continue', request_key='import-image', images=images)
+        self.assertEqual(self.requests[0][1], '/runs/images')
+        self.assertEqual(self.requests[0][3]['images'], images)
+        self.assertEqual(self.requests[1][3]['images'], images)
+        self.assertEqual(self.requests[2][3]['transcript'], transcript)
+
     def test_conversation_transfer_has_explicit_sources_keys_and_a_separate_body_bound(self):
         transcript = {'format_version': 1, 'messages': [
             {'role': 'user', 'content': [{'type': 'text', 'text': 'x' * 70000}]}]}

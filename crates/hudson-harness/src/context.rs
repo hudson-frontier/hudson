@@ -2,6 +2,7 @@ use crate::{Config, HarnessError, Message, ModelRequest};
 
 /// Preserve complete messages/exchanges. No silent truncation or invented summarization.
 pub fn build(config: &Config, messages: Vec<Message>) -> Result<ModelRequest, HarnessError> {
+    crate::images::validate_history(&messages)?;
     let request = ModelRequest {
         instructions: config.instructions.clone(),
         model: config.model.clone(),
@@ -47,7 +48,15 @@ impl History {
     /// calls are never split from results, including parallel call batches.
     pub fn oldest_complete_exchange(&self) -> Option<std::ops::Range<usize>> {
         let protected = self.latest_direction_index();
-        self.exchange_at(if protected == Some(1) { 2 } else { 1 })
+        let mut start = 1;
+        while start < self.messages.len() {
+            if Some(start) == protected || self.has_image(start) {
+                start += 1;
+                continue;
+            }
+            return self.exchange_at(start);
+        }
+        None
     }
 
     /// Scan each message once, retaining the original task and newest user direction.
@@ -56,7 +65,7 @@ impl History {
         let mut ranges = Vec::new();
         let mut start = 1;
         while start < self.messages.len() {
-            if Some(start) == protected {
+            if Some(start) == protected || self.has_image(start) {
                 start += 1;
                 continue;
             }
@@ -76,6 +85,13 @@ impl History {
             message.role == crate::Role::User && !matches!(message.content.as_slice(),
                 [crate::Content::Text { text }] if text.starts_with(crate::agent_loop::VERIFICATION_FEEDBACK_PREFIX))
         })
+    }
+
+    fn has_image(&self, index: usize) -> bool {
+        self.messages[index]
+            .content
+            .iter()
+            .any(|content| matches!(content, crate::Content::Image { .. }))
     }
 
     fn exchange_at(&self, start: usize) -> Option<std::ops::Range<usize>> {

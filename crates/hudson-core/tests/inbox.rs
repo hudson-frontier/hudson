@@ -166,6 +166,21 @@ fn steering_precedes_follow_up_and_receipts_survive_reopen() {
 }
 
 #[test]
+fn compaction_requires_a_pinned_context_policy_without_consuming_a_queue_slot() {
+    let actor = fixtures::actor();
+    let store = Store::default();
+    install(&store);
+    let host = runtime(store.clone(), Arc::new(Mutex::new(Vec::new())));
+    let id = host
+        .submit(&actor, fixtures::agent_ref(), json!("original"), None)
+        .unwrap();
+    assert!(store
+        .enqueue_message(&actor, id, MessageKind::Compact, Value::Null, "compact")
+        .is_err());
+    assert!(store.queued_messages(&actor, id).unwrap().is_empty());
+}
+
+#[test]
 #[ignore = "requires HUDSON_TEST_DATABASE in local PostgreSQL"]
 fn postgres_queue_consumption_and_receipts_survive_reconnect() {
     let database = std::env::var("HUDSON_TEST_DATABASE").unwrap();

@@ -21,6 +21,11 @@ pub(crate) enum SubmissionScope {
     Scheduled(Option<crate::scheduling::ScheduleTarget>),
     Experiment(crate::experiments::RunScope),
     Conversation(Uuid),
+    Transfer(
+        crate::conversations::Transcript,
+        Option<Uuid>,
+        Option<crate::scheduling::ScheduleTarget>,
+    ),
 }
 
 impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
@@ -67,6 +72,27 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         )
     }
 
+    /// Admit a fresh task from explicit portable history. Provider state and
+    /// prior operation receipts never become authority in the new run.
+    pub fn import_turn(
+        &self,
+        actor: &Actor,
+        agent: VersionRef,
+        turn: crate::conversations::ImportedTurn,
+        schedule: Option<crate::scheduling::ScheduleTarget>,
+    ) -> Result<Uuid> {
+        turn.transcript
+            .validate(crate::conversations::MAX_TRANSCRIPT_BYTES)?;
+        self.submit_scoped(
+            actor,
+            agent,
+            turn.input,
+            Some(turn.request_key),
+            turn.goal,
+            SubmissionScope::Transfer(turn.transcript, turn.source_run, schedule),
+        )
+    }
+
     pub fn submit_with_goal(
         &self,
         actor: &Actor,
@@ -107,10 +133,13 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         goal: Option<Goal>,
         scope: SubmissionScope,
     ) -> Result<Uuid> {
-        let (schedule, experiment, previous) = match scope {
-            SubmissionScope::Scheduled(schedule) => (schedule, None, None),
-            SubmissionScope::Experiment(scope) => (None, Some(scope), None),
-            SubmissionScope::Conversation(previous) => (None, None, Some(previous)),
+        let (schedule, experiment, previous, transcript, source_run) = match scope {
+            SubmissionScope::Scheduled(schedule) => (schedule, None, None, None, None),
+            SubmissionScope::Experiment(scope) => (None, Some(scope), None, None, None),
+            SubmissionScope::Conversation(previous) => (None, None, Some(previous), None, None),
+            SubmissionScope::Transfer(transcript, source, schedule) => {
+                (schedule, None, None, Some(transcript), source)
+            }
         };
         if let Some(target) = &schedule {
             target.validate()?;
@@ -135,10 +164,21 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
         {
             return Err(Error::Invalid("request key length".into()));
         }
-        let input_digest = match (&goal, previous) {
-            (_, Some(previous)) => definitions::digest(&(agent_ref.clone(), &input, previous))?,
-            (Some(goal), None) => definitions::digest(&(agent_ref.clone(), &input, goal))?,
-            (None, None) => definitions::digest(&(agent_ref.clone(), &input))?,
+        let input_digest = if let Some(transcript) = &transcript {
+            definitions::digest(&(
+                "portable-conversation-v1",
+                &agent_ref,
+                &input,
+                &goal,
+                transcript,
+                source_run,
+            ))?
+        } else {
+            match (&goal, previous) {
+                (_, Some(previous)) => definitions::digest(&(agent_ref.clone(), &input, previous))?,
+                (Some(goal), None) => definitions::digest(&(agent_ref.clone(), &input, goal))?,
+                (None, None) => definitions::digest(&(agent_ref.clone(), &input))?,
+            }
         };
         self.store.transact(|d| {
             if let Some(scope) = &experiment {
@@ -178,6 +218,18 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
             let meta = Metadata::new(&actor.workspace_id);
             let id = meta.id;
             let mut initial = self.engine.initial_state();
+            if let Some(transcript)=&transcript {
+                if let Some(source)=source_run {
+                    if crate::conversations::export(d,actor,source)? != *transcript {
+                        return Err(Error::Conflict("fork transcript differs from the saved conversation".into()));
+                    }
+                }
+                if initial.backend != "hudson" || initial.backend_version != 1 {
+                    return Err(Error::Unsupported("conversation import requires the Hudson backend".into()));
+                }
+                transcript.validate(agent.limits.max_context_bytes)?;
+                initial=hudson_harness::agent_loop::with_history(&initial,transcript.history())?;
+            }
             if let Some(previous) = previous {
                 if initial.backend != "hudson" || initial.backend_version != 1 {
                     return Err(Error::Unsupported("conversation turns require the default Hudson backend".into()));
@@ -238,7 +290,7 @@ impl<B: Backend, M: ModelExecutor, T: ToolExecutor> Runtime<B, M, T> {
                 None,
                 EventType::RunCreated,
                 Some(actor.id.clone()),
-                json!({}),
+                if let Some(transcript)=&transcript {json!({"imported_history":true,"transcript_digest":definitions::digest(transcript)?,"source_run":source_run})} else {json!({})},
             );
             Ok(id)
         })

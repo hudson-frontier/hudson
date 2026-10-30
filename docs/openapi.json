@@ -1109,6 +1109,150 @@
         },
         "description": "Observation only. Maximum 32 combined SSE/WebSocket connections per host and 300 seconds per connection. Bearer expiry and revocation close observation. Reconnect explicitly from the last processed sequence. No credentials in query strings. model_output_delta payloads are provisional and bound to an operation attempt; only verified final output completes a run. Each text message contains an Event object. Clients may ping, pong or close; mutation messages close the socket. Incoming messages are capped at 4096 bytes."
       }
+    },
+    "/runs/{id}/conversation": {
+      "get": {
+        "operationId": "exportConversation",
+        "summary": "Export completed actor-owned portable history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable context without provider state or execution authority",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/import": {
+      "post": {
+        "operationId": "importConversation",
+        "summary": "Admit a new independent task from explicitly transferred context",
+        "description": "Published mode requires agent_ref; configured mode uses its root agent and rejects agent_ref. The target goal, limits, budget, policies and scheduling apply afresh. Forks verify the completed source inside admission. Import body ceiling is 5 MiB with four concurrency slots and a 30-second HTTP deadline; ordinary fork bodies retain 64 KiB.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunHandle"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/fork": {
+      "post": {
+        "operationId": "forkConversation",
+        "summary": "Admit a new independent task from explicitly transferred context",
+        "description": "Published mode requires agent_ref; configured mode uses its root agent and rejects agent_ref. The target goal, limits, budget, policies and scheduling apply afresh. Forks verify the completed source inside admission. Import body ceiling is 5 MiB with four concurrency slots and a 30-second HTTP deadline; ordinary fork bodies retain 64 KiB.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationFork"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunHandle"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Runtime errors return JSON error; malformed HTTP/JSON/UUID and body-limit rejections may return text. Statuses include 400, 403, 404, 409, 413, 415, 422, 500.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2415,6 +2559,283 @@
             }
           }
         }
+      },
+      "PortableToolCall": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "arguments": {},
+          "provider_metadata": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "call_id",
+          "name",
+          "arguments"
+        ],
+        "additionalProperties": false
+      },
+      "PortableContent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "text"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "json"
+              },
+              "value": {}
+            },
+            "required": [
+              "type",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "tool_call"
+              },
+              "call": {
+                "$ref": "#/components/schemas/PortableToolCall"
+              }
+            },
+            "required": [
+              "type",
+              "call"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "tool_result"
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "call_id": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "const": "success"
+                          },
+                          "value": {}
+                        },
+                        "required": [
+                          "status",
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "const": "error"
+                          },
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status",
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "call_id",
+                  "outcome"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "result"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PortableMessage": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "enum": [
+              "user",
+              "assistant",
+              "tool"
+            ]
+          },
+          "content": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1024,
+            "items": {
+              "$ref": "#/components/schemas/PortableContent"
+            }
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "Transcript": {
+        "type": "object",
+        "properties": {
+          "format_version": {
+            "const": 1
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "$ref": "#/components/schemas/PortableMessage"
+            },
+            "minItems": 1
+          },
+          "archived_exchanges": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "array",
+              "maxItems": 4096,
+              "items": {
+                "$ref": "#/components/schemas/PortableMessage"
+              }
+            }
+          }
+        },
+        "required": [
+          "format_version",
+          "messages"
+        ],
+        "additionalProperties": false,
+        "description": "At most 4 MiB and 4096 combined messages, including archived exchanges. Complete tool exchanges only; no provider continuation metadata or unresolved artifact IDs. Archives are quoted evidence, not reconstructed absolute message positions."
+      },
+      "ConversationFork": {
+        "type": "object",
+        "properties": {
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "input",
+          "request_key"
+        ],
+        "additionalProperties": false
+      },
+      "ConversationImport": {
+        "type": "object",
+        "properties": {
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/Transcript"
+          }
+        },
+        "required": [
+          "input",
+          "request_key",
+          "transcript"
+        ],
+        "additionalProperties": false
+      },
+      "PublishedConversationFork": {
+        "type": "object",
+        "properties": {
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/CustomerReference"
+          }
+        },
+        "required": [
+          "input",
+          "request_key",
+          "agent_ref"
+        ],
+        "additionalProperties": false
+      },
+      "PublishedConversationImport": {
+        "type": "object",
+        "properties": {
+          "input": {},
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/CustomerReference"
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/Transcript"
+          }
+        },
+        "required": [
+          "input",
+          "request_key",
+          "transcript",
+          "agent_ref"
+        ],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

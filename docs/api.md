@@ -25,6 +25,9 @@ can be loaded at startup or published through authenticated catalog mode. Creden
 | `GET /runs/{id}/events?after=0&limit=100` | Poll a bounded event page after an exclusive sequence cursor |
 | `GET /runs/{id}/events/stream` | Observe SSE events; resume using `Last-Event-ID` |
 | `GET /runs/{id}/events/ws` | Observe journal events over a WebSocket |
+| `GET /runs/{id}/conversation` | Export completed portable history without provider state |
+| `POST /runs/{id}/fork` | Start an independent task from an actor-owned completed conversation |
+| `POST /runs/import` | Admit explicitly transferred history with a fresh task and budget |
 | `POST /runs/{id}/resume` | Schedule continuation with the configured executor |
 | `POST /runs/{id}/input` | Record an answer for `question_id` and schedule continuation |
 | `POST /runs/{id}/cancel` | Request cancellation of the run and known children |
@@ -69,7 +72,10 @@ Only the final run result has passed normal verification. See the
 [execution adapter guide](execution-adapters.md#provisional-text-streaming) for
 frame formats, resource bounds and transport behavior.
 
-The body limit is 64 KiB. Runtime errors use `{"error":"..."}`; malformed JSON,
+The conversation import endpoint has a separate 5 MiB body ceiling and four
+concurrent import slots; see [portable conversation transfer](conversations.md)
+for format and ownership rules. Other request bodies remain capped at 64 KiB.
+Runtime errors use `{"error":"..."}`; malformed JSON,
 UUIDs, content types, and oversized bodies can receive plain-text framework
 errors. Handle status before decoding the body. Event payloads and run results
 are arbitrary JSON. Responses expose no executable checkpoint or credentials.

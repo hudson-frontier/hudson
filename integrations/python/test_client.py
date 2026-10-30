@@ -20,6 +20,23 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.client.harnesses(), [{'id': 'fixture', 'version': 1}])
         self.assertEqual([(method, path) for method, path, _, _ in self.requests], [('GET', '/harnesses')])
 
+    def test_conversation_transfer_has_explicit_sources_keys_and_a_separate_body_bound(self):
+        transcript = {'format_version': 1, 'messages': [
+            {'role': 'user', 'content': [{'type': 'text', 'text': 'x' * 70000}]}]}
+        self.client.export_conversation(RUN)
+        self.client.fork(RUN, 'continue', request_key='fork-one')
+        self.client.import_conversation(transcript, 'continue', request_key='import-one',
+                                        agent_ref={'name': 'target', 'version': 2})
+        self.assertEqual([(method, path) for method, path, _, _ in self.requests], [
+            ('GET', f'/runs/{RUN}/conversation'), ('POST', f'/runs/{RUN}/fork'),
+            ('POST', '/runs/import')])
+        self.assertEqual(self.requests[2][3]['transcript'], transcript)
+        self.assertEqual(self.requests[1][3], {'input': 'continue', 'request_key': 'fork-one'})
+        with self.assertRaises(ValueError):
+            self.client.start(transcript, request_key='normal-bound')
+        with self.assertRaises(ValueError):
+            self.client.import_conversation(transcript, 'continue', request_key='')
+
     def test_stream_events_preserves_unicode_cursor_and_provisional_output(self):
         events = [{'run_id': RUN, 'sequence': i, 'event_type': 'model_output_delta',
                    'payload': {'text': 'a\u2028😀', 'provisional': True}} for i in (3, 4)]

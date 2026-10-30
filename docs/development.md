@@ -82,6 +82,8 @@ a supplied task or run ID; it is not a distributed queue consumer.
 
 The [harness controls guide](harness-controls.md) covers durable steering,
 follow-ups, context headroom, and provider reasoning settings.
+The [conversation transfer guide](conversations.md) covers explicit exports,
+independent forks and imports into another immutable agent or runtime.
 The [execution adapter guide](execution-adapters.md) describes operator-owned
 HTTP/stdio SDK bridges, capability discovery and their lifecycle limits.
 

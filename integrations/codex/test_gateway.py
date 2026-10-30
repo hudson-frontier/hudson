@@ -18,7 +18,9 @@ spec.loader.exec_module(gateway)
 class GatewayTests(unittest.TestCase):
     def test_authentication_single_request_and_pinned_model_tools_and_allocation(self):
         captured = []
-        output = b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+        output = (b'data: {"type":"response.created","response":{"id":"r"}}\n\n'
+                  b'data: {"type":"response.completed","response":{"id":"r","status":"completed","output":'
+                  b'[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"42"}]}]}}\n\n')
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, *_): pass
             def do_POST(self):
@@ -58,7 +60,7 @@ class GatewayTests(unittest.TestCase):
             self.assertEqual(request['max_output_tokens'], 32)
             self.assertFalse(request['parallel_tool_calls'])
             self.assertFalse(request['store'])
-            self.assertEqual([tool['name'] for tool in request['tools']], ['lookup'])
+            self.assertEqual([tool['name'] for tool in request['tools']], [gateway.tool_alias('lookup')])
         finally:
             destination.shutdown(); destination.server_close(); thread.join(timeout=1)
 
@@ -78,6 +80,20 @@ class GatewayTests(unittest.TestCase):
             self.assertIsNotNone(peer.failure)
             self.assertTrue(peer.used)
             self.assertIsNone(peer.body)
+
+    def test_unadvertised_intermediate_native_call_is_rejected_before_forwarding(self):
+        allowed = {gateway.tool_alias('lookup')}
+        records = [
+            {'type':'response.created','response':{'id':'r'}},
+            {'type':'response.output_item.done','item':{'type':'function_call','name':'view_image',
+                'call_id':'dangerous','arguments':'{"path":"/private"}'}},
+            {'type':'response.completed','response':{'id':'r','status':'completed','output':[
+                {'type':'message','role':'assistant','content':[{'type':'output_text','text':'42'}]}]}},
+        ]
+        raw = b''.join(b'data: '+json.dumps(record).encode()+b'\n\n' for record in records)
+        with self.assertRaises(ValueError):
+            gateway.validate_response(raw, allowed)
+        self.assertNotEqual(gateway.tool_alias('view_image'), 'view_image')
 
 
 if __name__ == '__main__':

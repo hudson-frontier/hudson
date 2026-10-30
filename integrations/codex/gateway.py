@@ -14,6 +14,120 @@ import urllib.parse
 MAX_BYTES = 4 * 1024 * 1024
 
 
+def tool_alias(name):
+    # Native builtins cannot collide with arbitrary customer-facing aliases.
+    return 'hudson_tool_' + hashlib.sha256(name.encode('utf-8')).hexdigest()[:32]
+
+
+def decode(raw):
+    return json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError('JSON constant')))
+
+
+def validate_response(raw, allowed):
+    """Validate every streamed item before a vendor runtime can act on it.
+
+    Buffering is deliberate: filtering only the final output would allow an
+    earlier unadvertised builtin to execute before its receipt was rejected.
+    """
+    events = {
+        'response.created', 'response.in_progress', 'response.output_item.added',
+        'response.output_item.done', 'response.content_part.added', 'response.content_part.done',
+        'response.output_text.delta', 'response.output_text.done',
+        'response.function_call_arguments.delta', 'response.function_call_arguments.done',
+        'response.reasoning_summary_part.added', 'response.reasoning_summary_part.done',
+        'response.reasoning_summary_text.delta', 'response.reasoning_summary_text.done',
+        'response.reasoning_text.delta', 'response.reasoning_text.done', 'response.completed',
+    }
+    def item(value, complete=False):
+        if not isinstance(value, dict):
+            raise ValueError('invalid provider item')
+        kind = value.get('type')
+        if kind == 'function_call':
+            if (value.get('name') not in allowed or not isinstance(value.get('arguments'), str)
+                    or value.get('namespace') is not None):
+                raise ValueError('unadvertised native function')
+            if complete:
+                identifier = value.get('call_id')
+                if not isinstance(identifier, str) or not 0 < len(identifier) <= 256:
+                    raise ValueError('invalid native call identity')
+                decode(value['arguments'])
+        elif kind == 'message':
+            if value.get('role') != 'assistant' or not isinstance(value.get('content'), list):
+                raise ValueError('invalid assistant item')
+            for block in value['content']:
+                if (not isinstance(block, dict) or block.get('type') != 'output_text'
+                        or not isinstance(block.get('text'), str)):
+                    raise ValueError('unsupported assistant content')
+        elif kind != 'reasoning':
+            raise ValueError('unadvertised native item')
+
+    completed = None
+    created = None
+    count = 0
+    normalized = raw.replace(b'\r\n', b'\n')
+    if not normalized.endswith(b'\n\n'):
+        raise ValueError('truncated provider record')
+    for record in normalized.split(b'\n\n'):
+        lines = [line[5:].lstrip(b' ') for line in record.split(b'\n') if line.startswith(b'data:')]
+        if not lines:
+            continue
+        count += 1
+        if count > 4096:
+            raise ValueError('provider event ceiling')
+        data = b'\n'.join(lines)
+        if data == b'[DONE]' and completed is not None:
+            continue
+        if completed is not None:
+            raise ValueError('provider event after completion')
+        event = decode(data)
+        if not isinstance(event, dict) or event.get('type') not in events:
+            raise ValueError('unsupported provider event')
+        kind = event['type']
+        if kind in ('response.output_item.added', 'response.output_item.done'):
+            item(event.get('item'), complete=kind.endswith('.done'))
+        elif kind in ('response.content_part.added', 'response.content_part.done'):
+            part = event.get('part')
+            if not isinstance(part, dict) or part.get('type') != 'output_text':
+                raise ValueError('unsupported native content part')
+        elif kind.startswith('response.function_call_arguments.'):
+            if 'name' in event and event['name'] not in allowed:
+                raise ValueError('unadvertised native argument event')
+        elif kind == 'response.created':
+            if created is not None:
+                raise ValueError('duplicate provider start')
+            response = event.get('response')
+            if not isinstance(response, dict):
+                raise ValueError('invalid provider start')
+            created = response.get('id')
+            if not isinstance(created, str) or not 0 < len(created) <= 256:
+                raise ValueError('invalid provider response identity')
+        elif kind == 'response.completed':
+            value = event.get('response')
+            if (not isinstance(value, dict) or value.get('id') != created or created is None
+                    or value.get('status') != 'completed' or not isinstance(value.get('output'), list)
+                    or not 0 < len(value['output']) <= 1024):
+                raise ValueError('invalid provider completion')
+            calls = set()
+            for output in value['output']:
+                item(output, complete=True)
+                if output['type'] == 'function_call':
+                    identifier = output['call_id']
+                    if identifier in calls or len(calls) >= 128:
+                        raise ValueError('duplicate or excessive native calls')
+                    calls.add(identifier)
+            usage = value.get('usage')
+            if usage is not None:
+                if not isinstance(usage, dict):
+                    raise ValueError('invalid provider usage')
+                counts = [usage.get(key) for key in ('input_tokens', 'output_tokens')]
+                if any(type(n) is not int or not 0 <= n <= 2**64-1 for n in counts) or sum(counts) > 2**64-1:
+                    raise ValueError('invalid provider usage')
+            completed = value
+    if completed is None:
+        raise ValueError('incomplete provider stream')
+    return completed
+
+
 def encode(value):
     result = bytearray()
     for part in json.JSONEncoder(ensure_ascii=False, allow_nan=False,
@@ -36,13 +150,18 @@ class OneRequestGateway:
                 or type(max_output_tokens) is not int or not 0 < max_output_tokens <= 2**32-1):
             raise ValueError('invalid provider gateway configuration')
         self.url, self.credential = url, credential
-        self.model, self.tools, self.max_output_tokens = model, tools, max_output_tokens
+        self.model, self.max_output_tokens = model, max_output_tokens
+        self.by_alias = {tool_alias(tool['name']): tool['name'] for tool in tools}
+        if len(self.by_alias) != len(tools):
+            raise ValueError('duplicate native tool alias')
+        self.tools = [dict(tool, name=tool_alias(tool['name'])) for tool in tools]
         self.token = secrets.token_urlsafe(32)
         self.used = False
         self.lock = threading.Lock()
         self.completed = threading.Event()
         self.failure = None
         self.body = None
+        self.response = None
         self.digest = None
         owner = self
 
@@ -58,7 +177,8 @@ class OneRequestGateway:
                 self.end_headers()
 
             def do_POST(self):
-                if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer '+owner.token):
+                if not hmac.compare_digest(self.headers.get('Authorization', '').encode('latin-1'),
+                                           ('Bearer '+owner.token).encode('ascii')):
                     self.reply(401)
                     return
                 with owner.lock:
@@ -99,9 +219,6 @@ class OneRequestGateway:
                         if (response.status != 200 or response.getheader('Content-Encoding', 'identity').lower() != 'identity'
                                 or not response.getheader('Content-Type', '').lower().startswith('text/event-stream')):
                             raise ValueError('provider response rejected')
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'text/event-stream')
-                        self.end_headers()
                         output = bytearray()
                         while True:
                             chunk = response.read1(8192)
@@ -110,10 +227,15 @@ class OneRequestGateway:
                             if len(chunk) > MAX_BYTES - len(output):
                                 raise ValueError('provider response byte ceiling')
                             output.extend(chunk)
-                            self.wfile.write(chunk)
-                            self.wfile.flush()
+                        owner.response = validate_response(bytes(output), owner.by_alias)
                         owner.body = bytes(output)
                         owner.digest = hashlib.sha256(output).hexdigest()
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/event-stream')
+                        self.send_header('Content-Length', str(len(output)))
+                        self.end_headers()
+                        self.wfile.write(output)
+                        self.wfile.flush()
                     finally:
                         connection.close()
                 except (OSError, ValueError, RecursionError, http.client.HTTPException):

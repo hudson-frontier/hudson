@@ -121,7 +121,7 @@ def main():
                     raise AssertionError(f'native peer deadline; fixture requests={len(requests)}; diagnostic={error.stderr!r}') from None
                 if result.returncode != 0:
                     raise AssertionError('native SDK peer failed: ' + result.stderr)
-                frames = [json.loads(line) for line in result.stdout.splitlines()]
+                frames = [json.loads(line) for line in result.stdout.split('\n') if line]
                 assert frames[0]['type'] == 'start' and frames[-1]['type'] == 'response'
                 return frames, frames[-1]['result']
 

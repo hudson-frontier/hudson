@@ -43,7 +43,7 @@ def validate_response(raw, allowed):
             raise ValueError('invalid provider item')
         kind = value.get('type')
         if kind == 'function_call':
-            if (value.get('name') not in allowed or not isinstance(value.get('arguments'), str)
+            if (not isinstance(value.get('name'), str) or value['name'] not in allowed or not isinstance(value.get('arguments'), str)
                     or value.get('namespace') is not None):
                 raise ValueError('unadvertised native function')
             if complete:
@@ -80,7 +80,7 @@ def validate_response(raw, allowed):
         if completed is not None:
             raise ValueError('provider event after completion')
         event = decode(data)
-        if not isinstance(event, dict) or event.get('type') not in events:
+        if not isinstance(event, dict) or not isinstance(event.get('type'), str) or event['type'] not in events:
             raise ValueError('unsupported provider event')
         kind = event['type']
         if kind in ('response.output_item.added', 'response.output_item.done'):
@@ -90,7 +90,7 @@ def validate_response(raw, allowed):
             if not isinstance(part, dict) or part.get('type') != 'output_text':
                 raise ValueError('unsupported native content part')
         elif kind.startswith('response.function_call_arguments.'):
-            if 'name' in event and event['name'] not in allowed:
+            if 'name' in event and (not isinstance(event['name'], str) or event['name'] not in allowed):
                 raise ValueError('unadvertised native argument event')
         elif kind == 'response.created':
             if created is not None:
@@ -239,7 +239,7 @@ class OneRequestGateway:
                         self.wfile.flush()
                     finally:
                         connection.close()
-                except (OSError, ValueError, RecursionError, http.client.HTTPException):
+                except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, http.client.HTTPException):
                     owner.failure = 'Provider gateway failed or rejected an unsafe request'
                     self.close_connection = True
                 finally:

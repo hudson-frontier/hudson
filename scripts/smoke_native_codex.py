@@ -73,7 +73,7 @@ def main():
                     assert result.returncode != 0
                     return None
                 assert result.returncode == 0, result.stderr
-                frames = [json.loads(line) for line in result.stdout.splitlines()]
+                frames = [json.loads(line) for line in result.stdout.split('\n') if line]
                 assert frames[0]['type']=='start' and frames[-1]['type']=='response'
                 return frames[-1]['result']
 

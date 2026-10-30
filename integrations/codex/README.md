@@ -7,6 +7,11 @@ forks. Install the pinned official CLI separately; its Apache-2.0 license and
 notices remain with that package. This first-party adapter uses only Python's
 standard library and the shared private checkpoint helpers.
 
+Optional `runtime.reasoning_effort` is pinned in the private CLI configuration,
+the native turn and the guarded provider request. The receipt acknowledges the
+same effort; the host rejects a mismatch before admitting tools. The setting
+does not increase output allocation or authorize another model request.
+
 Configure an absolute Python 3.12+ executable with
 `args: ["-I", "/absolute/hudson/integrations/codex/peer.py"]`. Enable
 `runtime.native_sessions: true`, and explicitly pass these environment

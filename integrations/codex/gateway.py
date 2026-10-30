@@ -140,7 +140,7 @@ def encode(value):
 
 
 class OneRequestGateway:
-    def __init__(self, endpoint, credential, model, tools, max_output_tokens):
+    def __init__(self, endpoint, credential, model, tools, max_output_tokens, reasoning_effort=None):
         url = urllib.parse.urlsplit(endpoint)
         local = url.hostname in ('localhost', '127.0.0.1', '::1')
         if ((url.scheme != 'https' and not (url.scheme == 'http' and local)) or not url.hostname
@@ -149,8 +149,11 @@ class OneRequestGateway:
                 or '\r' in credential or '\n' in credential
                 or type(max_output_tokens) is not int or not 0 < max_output_tokens <= 2**32-1):
             raise ValueError('invalid provider gateway configuration')
+        if reasoning_effort is not None and reasoning_effort not in ('none','minimal','low','medium','high','xhigh','max'):
+            raise ValueError('unsupported native reasoning effort')
         self.url, self.credential = url, credential
         self.model, self.max_output_tokens = model, max_output_tokens
+        self.reasoning_effort = reasoning_effort
         self.by_alias = {tool_alias(tool['name']): tool['name'] for tool in tools}
         if len(self.by_alias) != len(tools):
             raise ValueError('duplicate native tool alias')
@@ -207,6 +210,11 @@ class OneRequestGateway:
                     value['tool_choice'] = 'auto'
                     value['parallel_tool_calls'] = False
                     value['max_output_tokens'] = owner.max_output_tokens
+                    if owner.reasoning_effort is not None:
+                        reasoning = value.get('reasoning') or {}
+                        if not isinstance(reasoning, dict):
+                            raise ValueError('invalid native reasoning object')
+                        value['reasoning'] = dict(reasoning, effort=owner.reasoning_effort)
                     value['store'] = False
                     value['stream'] = True
                     request = encode(value)

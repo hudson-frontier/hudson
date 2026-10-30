@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stream: args[0] == "stream",
                 images: false,
                 native_sessions: false,
+                reasoning_effort: None,
             },
             32,
         )?),

@@ -58,3 +58,6 @@ pub mod coordination;
 pub mod scheduling;
 
 pub mod sandbox_binding;
+
+/// Embedded synchronous session API.
+pub mod sdk;

@@ -14,6 +14,7 @@ crates/
     config.rs          model, instructions, tool descriptors, bounds
     context.rs         complete conversation with explicit byte bounds
   hudson-core/src/
+    sdk.rs             embedded synchronous session facade over the existing runtime
     models/            Agent, Tool, Run, Operation, Event; nested value types
     configured.rs      shared JSON configuration and runtime construction
     definitions.rs     immutable versions, schemas, transport bindings
@@ -141,3 +142,6 @@ See [development](development.md), [recovery](recovery.md),
 [evaluation](evaluation.md), and the [implementation audit](implementation-status.md).
 The [data model](data-model.md) and [product goals](goals.md) also describe later
 capabilities; they are not a claim that every planned field or service is present.
+
+The additive [embedded SDK contract](rfcs/0001-embedded-agent-sdk.md) defines
+public session assembly, defaults and future extraction boundaries.

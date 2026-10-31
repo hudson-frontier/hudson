@@ -506,3 +506,10 @@ in its integration README.
 The Harbor worker build uses a fresh Rustup directory under the job's temporary
 directory. It still selects `rust-toolchain.toml`, while avoiding incomplete
 toolchain components preinstalled in the hosted runner image.
+
+## Embedded SDK
+
+Run `cargo run --locked -p hudson-core --example embedded` for an entirely offline
+custom-tool cycle through the public session facade. The example is compiled by
+all-target Clippy; `tests/sdk.rs` covers admission, controls and reconstruction.
+See the [SDK contract](rfcs/0001-embedded-agent-sdk.md).

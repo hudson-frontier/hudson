@@ -27,6 +27,21 @@ one configured workspace/actor identity per server. Application Rust tools are
 trusted code. See the [implementation audit](docs/implementation-status.md) for
 verified behavior and the remaining hosting and isolation work.
 
+## Embed in Rust
+
+The preview `hudson_core::sdk::SessionBuilder` assembles an actor-scoped session
+with an explicit model executor, registered tools and policies. It uses the same
+runtime admission, verification, steering and recovery checks as other hosts.
+Run the complete synthetic model/tool example without credentials or services:
+
+```sh
+cargo run --locked -p hudson-core --example embedded
+```
+
+See the [SDK contract](docs/rfcs/0001-embedded-agent-sdk.md) and
+[example source](crates/hudson-core/examples/embedded.rs). This first API is
+synchronous and host-driven; responsive background driving is follow-up work.
+
 ## Installation
 
 Build the backend from source with the pinned Rust 1.92.0 toolchain:
